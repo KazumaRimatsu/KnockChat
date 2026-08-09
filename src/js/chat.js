@@ -351,7 +351,19 @@
         }
 
         function handlePublicMessage(msg, isHistory = false) {
-            if (publicMessageById.has(msg.id)) return;
+            const existing = publicMessageById.get(msg.id);
+            if (existing) {
+                // v088: 旧版本地缓存缺 sender_uid（_trimMsg 曾丢弃该字段），用服务端数据补齐，
+                // 并就地修正该消息行的左右归属，避免"自己的消息被排到左边"
+                if (!existing.sender_uid && msg.sender_uid) {
+                    existing.sender_uid = msg.sender_uid;
+                    if (msg.sender) existing.sender = msg.sender;
+                    const row = document.querySelector('#publicMessages .msg-row[data-msg-id="' + CSS.escape(msg.id) + '"]');
+                    if (row) row.classList.toggle('own', isMsgFromMe(existing));
+                    scheduleMessageCacheSave();
+                }
+                return;
+            }
             if (msg.is_system && isGarbledText(msg.text)) return;
             if (msg.is_system && msg.text && (
                 msg.text.includes('加入了CikaChat') || msg.text.includes('离开了CikaChat') ||
@@ -1001,7 +1013,7 @@
             }
             // v086: 发送中禁用按钮并显示加载动画
             setSendState('publicSendBtn', true);
-            const payload = { sender: currentUser, text: text || '', msg_version: APP_VERSION, is_system: false };
+            const payload = { sender: currentUser, text: text || '', msg_version: KERNEL_VERSION, is_system: false };
             if (replyTarget) {
                 // v073 性能优化：Map O(1) 查找替代数组线性 find
                 const replied = publicMessageById.get(replyTarget.id);

@@ -163,11 +163,12 @@
             return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
         }
 
-        async function recordLogin(username, ip) {
+        async function recordLogin(username, ip, region) {
             try {
                 await s3.rpc('record_login', {
                     p_uid: currentUid,
-                    p_ip: ip || 'unknown'
+                    p_ip: ip || 'unknown',
+                    p_region: region || ''
                 });
             } catch (e) { /* ignore */ }
         }
@@ -179,12 +180,18 @@
             try { localStorage.setItem(LS_KEYS.LAST_LOGIN_TIME, new Date().toISOString()); } catch (e) {}
         }
 
+        // v088: 腾讯 IP 定位接口，返回 IP 与登录地区（国家/省/市，连续重复去重）
         async function getClientIP() {
             try {
-                const res = await fetch('https://api.ipify.org?format=json');
+                const res = await fetch('https://r.inews.qq.com/api/ip2city');
                 const data = await res.json();
-                return data.ip;
-            } catch (e) { return 'unknown'; }
+                if (data && data.ret === 0) {
+                    const parts = [data.country, data.province, data.city].filter(Boolean);
+                    const region = parts.filter((p, i) => p !== parts[i - 1]).join(' ');
+                    return { ip: data.ip || 'unknown', region: region || '' };
+                }
+            } catch (e) { /* ignore */ }
+            return { ip: 'unknown', region: '' };
         }
 
         function showLogin() {
@@ -430,7 +437,7 @@
                         return;
                     }
                 } catch (ccErr) { /* ignore */ }
-                recordLastLogin(username);
+                recordLastLogin(currentUser);
                 const sessionToken = regSessionToken || generateLocalNonce();
                 localStorage.setItem(LS_KEYS.SESSION, JSON.stringify({ username: username, uid: currentUid, token: sessionToken, pwhash: passwordHash }));
                 // Initialize encrypted user settings with password hash as key (new user, starts fresh)
@@ -459,7 +466,7 @@
             hideEl('loginError');
             const username = document.getElementById('loginUsername').value.trim();
             const password = document.getElementById('loginPassword').value;
-            if (!username) return showEl('loginError', '请输入昵称');
+            if (!username) return showEl('loginError', '请输入UID');
             if (!password) return showEl('loginError', '请输入密码');
             if (!checkRateLimit('login', 5, 60000)) {
                 showEl('loginError', '登录尝试过于频繁，请1分钟后再试');
@@ -524,37 +531,42 @@
                 if (!userData || userData.success === false) {
                     clearTimeout(_loginTimeout);
                     hideGlobalLoading();
-                    return showEl('loginError', (userData && userData.message) || '昵称或密码错误');
+                    return showEl('loginError', (userData && userData.message) || 'UID或密码错误');
                 }
                 if (userData.banned) {
                     clearTimeout(_loginTimeout);
                     hideGlobalLoading();
                     return showEl('loginError', '您的账户已被封禁，无法登录');
                 }
-                currentUser = username;
+                // v088: uid 登录时入参是纯数字 uid，这里必须以服务端返回的真实 username 为准，
+                // 否则 currentUser 变成 uid 字符串，会导致个人资料查不到、本地设置/缓存键错位
+                currentUser = userData.username || username;
                 currentUid = userData.uid || 0;
                 currentAvatarUrl = userData.avatar_url || '';
                 userAvatarCache[currentUser] = currentAvatarUrl;
                 const sessionToken = userData.session_token || await hashPassword(passwordHash);
-                localStorage.setItem(LS_KEYS.SESSION, JSON.stringify({ username: username, uid: currentUid, token: sessionToken, pwhash: passwordHash }));
+                localStorage.setItem(LS_KEYS.SESSION, JSON.stringify({ username: currentUser, uid: currentUid, token: sessionToken, pwhash: passwordHash }));
                 // Initialize encrypted user settings with password hash as key
-                initUserSettings(passwordHash, username).catch(function(e) { console.warn('initUserSettings failed:', e); });
+                initUserSettings(passwordHash, currentUser).catch(function(e) { console.warn('initUserSettings failed:', e); });
                 document.getElementById('loginPassword').value = '';
                 updateLoadingText('登录中', '欢迎 ' + currentUser);
 
-                // v040: getClientIP with timeout - don't block login if IP fetch fails
+                // v088: 获取登录 IP 与地区（带超时，不阻塞登录）
                 var ip = 'unknown';
+                var region = '';
                 try {
-                    ip = await Promise.race([
+                    var loc = await Promise.race([
                         getClientIP(),
-                        new Promise(function(resolve) { setTimeout(function() { resolve('unknown'); }, 3000); })
+                        new Promise(function(resolve) { setTimeout(function() { resolve({ ip: 'unknown', region: '' }); }, 3000); })
                     ]);
-                } catch (e) { ip = 'unknown'; }
+                    ip = loc.ip || 'unknown';
+                    region = loc.region || '';
+                } catch (e) { ip = 'unknown'; region = ''; }
 
                 // v040: recordLogin with timeout - don't block login if recording fails
                 try {
                     await Promise.race([
-                        recordLogin(username, ip),
+                        recordLogin(currentUser, ip, region),
                         new Promise(function(resolve) { setTimeout(resolve, 5000); })
                     ]);
                 } catch (e) { /* ignore */ }
@@ -579,7 +591,7 @@
                         return;
                     }
                 } catch (ccErr) { /* ignore */ }
-                recordLastLogin(username);
+                recordLastLogin(currentUser);
                 if (window.__debugLog) window.__debugLog('登录成功: ' + currentUser + ' (uid=' + currentUid + ')');
                 authorizeEnterApp();
                 enterApp();
@@ -828,6 +840,15 @@
                             if (isBlocked) origModal.dataset.lockOverlay = '1';
                         }
                     }
+                } else {
+                    // v088: 主动探测会话有效性——管理员强制下线（删除该用户全部会话）后，
+                    // 公聊轮询等公开接口不校验会话，这里每 30 秒验证一次；
+                    // 会话失效时由 s3.rpc 中央钩子触发 handleSessionKicked 直接退出登录
+                    s3.rpc('verify_session_secure', {
+                        p_uid: currentUid,
+                        p_username: currentUser,
+                        p_token: getSessionToken()
+                    });
                 }
 
                 return true;
@@ -1591,6 +1612,21 @@
             _forceLogoutAllProcessed = false;
             showLogin();
         }
+
+        // v088: 检测到被强制下线/会话失效（如管理员用 BELL 强制下线、会话被删除）时直接退出登录。
+        // 由 s3.rpc 中央钩子（s3.js checkSessionInvalid）在任意 RPC 返回会话失效时调用。
+        var _sessionKickHandling = false;
+        function handleSessionKicked() {
+            if (_sessionKickHandling || !isEntered) return;
+            _sessionKickHandling = true;
+            try {
+                logout();
+                showEl('loginError', '您已被强制下线，请重新登录');
+            } finally {
+                _sessionKickHandling = false;
+            }
+        }
+        window.__onSessionInvalid = handleSessionKicked;
 
         async function deleteAccount() {
             if (!currentUser) return;

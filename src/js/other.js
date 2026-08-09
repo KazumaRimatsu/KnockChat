@@ -445,10 +445,9 @@
             } else if (page === 'about') {
                 pushPageHistory('about');
                 switchPage('aboutPage', true);
-                const v = document.getElementById('aboutVersion');
-                if (v) v.textContent = 'v' + VERSION;
+                // v088: 内核版本来源为 constants.js 的 KERNEL_VERSION 常量，更新版本只需维护该常量
                 const mjchatVersion = document.getElementById('aboutMjchatVersion');
-                if (mjchatVersion) mjchatVersion.textContent = 'MJChat内核版本  ' + APP_VERSION;
+                if (mjchatVersion) mjchatVersion.textContent = '内核版本 v' + String(KERNEL_VERSION).padStart(3, '0');
             } else if (page === 'groupFiles') {
                 pushPageHistory('groupFiles');
                 switchPage('groupFilesPage', true);
@@ -1301,7 +1300,7 @@
                         showEl('loginError', '您已被封禁');
                         return;
                     }
-                    currentUser = session.username;
+                    currentUser = userData.username || session.username;
                     currentUid = userData.uid || session.uid || 0;
                     currentAvatarUrl = userData.avatar_url || '';
                     userAvatarCache[currentUser] = currentAvatarUrl;
@@ -1309,7 +1308,7 @@
                     if (session.pwhash) {
                         // v049: 用会话中保存的密码哈希重新加载加密设置
                         try {
-                            await initUserSettings(session.pwhash, session.username);
+                            await initUserSettings(session.pwhash, currentUser);
                             // 重新应用主题和颜色（init 中已调用过但当时 _userSettingsCache 为空）
                             loadTheme();
                             loadCustomColor();

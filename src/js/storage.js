@@ -528,7 +528,7 @@
         // 只保留渲染所需字段，避免缓存体积膨胀与易变字段污染
         function _trimMsg(m) {
             if (!m || typeof m !== 'object') return null;
-            const out = { id: m.id, sender: m.sender, created_at: m.created_at };
+            const out = { id: m.id, sender: m.sender, sender_uid: m.sender_uid, created_at: m.created_at };
             if (typeof m.text === 'string') out.text = m.text;
             if (typeof m.content === 'string') out.content = m.content;
             if (m.image_url) out.image_url = m.image_url;

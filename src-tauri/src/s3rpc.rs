@@ -482,11 +482,9 @@ async fn do_verify_session(s3: &Arc<S3>, uid: u64, username: &str, token: &str) 
         return Ok(json!({ "success": true, "valid": false }));
     }
     let user = get_user(s3, uid).await?.unwrap_or_else(|| json!({}));
-    let name = if username.is_empty() {
-        user["username"].as_str().unwrap_or("")
-    } else {
-        username
-    };
+    // v088: username 一律以用户记录为准，不回显客户端传入值——
+    // 客户端本地会话里可能存着 uid 字符串（历史 bug），回显会导致 currentUser 变成 "1"
+    let name = user["username"].as_str().unwrap_or(username);
     Ok(json!({
         "success": true,
         "valid": true,
@@ -592,6 +590,7 @@ pub async fn s3rpc_record_login(params: Value) -> Result<Value, String> {
     if let Some(mut user) = get_user(&s, uid).await? {
         user["last_login_at"] = json!(now_iso());
         user["last_login_ip"] = json!(params["p_ip"].as_str().unwrap_or("unknown"));
+        user["last_login_region"] = json!(params["p_region"].as_str().unwrap_or(""));
         let _ = save_user(&s, uid, &user).await;
     }
     Ok(json!({ "success": true }))

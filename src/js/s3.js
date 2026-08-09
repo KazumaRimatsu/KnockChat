@@ -48,12 +48,27 @@ window.s3 = (function() {
         } catch (e) {}
     }
 
+    // v088: 会话失效集中检测——后端校验会话失败统一返回 { success:false, message:"请重新登录" }
+    // 或 { success:true, valid:false }；检测到即通知上层（api.js 注册的 __onSessionInvalid）直接退出登录
+    function checkSessionInvalid(name, data) {
+        try {
+            if (!data || typeof data !== 'object') return;
+            var invalid = false;
+            if (data.success === false && data.message === '请重新登录') invalid = true;
+            else if (data.success !== false && data.valid === false) invalid = true;
+            if (invalid && typeof window.__onSessionInvalid === 'function') {
+                window.__onSessionInvalid(name, data);
+            }
+        } catch (e) { /* 检测失败不影响业务 */ }
+    }
+
     // 与旧 sb.rpc 返回结构一致：{ data, error }
     async function rpc(name, params) {
         var t0 = Date.now();
         try {
             const data = await invoke('s3rpc_call', { name: name, params: params || {} });
             logRpc(name, Date.now() - t0, null);
+            checkSessionInvalid(name, data);
             return { data: data, error: null };
         } catch (e) {
             const msg = (e && e.message) ? String(e.message) : String(e);

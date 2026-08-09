@@ -893,6 +893,7 @@ class App:
             f"注册时间：{fmt_time(u.get('created_at'))}",
             f"最近登录：{fmt_time(u.get('last_login_at'))}",
             f"最近IP：{u.get('last_login_ip') or '-'}",
+            f"登录地区：{u.get('last_login_region') or '-'}",
         ]
         tk.messagebox.showinfo("用户详情", "\n".join(lines), parent=self.root)
 
