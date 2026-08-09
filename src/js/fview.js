@@ -741,9 +741,37 @@
         }
 
         // 文件预览总入口：按扩展名分发
-        function openFilePreview(url, filename) {
+        // v086: 从（可能已过期的）预签名 URL 中提取对象 Key。
+        // public_base 为空时 public_url 返回 7 天有效的签名链接，消息发送时写死进文本，
+        // 过期后 Office 预览会报"原始文件无效/不可公开访问"；群文件每次重新生成所以正常。
+        // 预签名 URL 形如 https://<endpoint>/<bucket>/<key>?X-Amz-*，去掉端点与桶名前缀即得 Key。
+        function _presignedKeyOf(url) {
+            try {
+                const u = new URL(url);
+                if (!/X-Amz-/i.test(u.search)) return null; // 非预签名链接（如公共读直链）无需刷新
+                const p = u.pathname.replace(/^\//, '');     // <bucket>/<key>
+                const slash = p.indexOf('/');
+                if (slash <= 0) return null;
+                return p.slice(slash + 1);
+            } catch (e) { return null; }
+        }
+
+        async function _refreshMediaUrl(url) {
+            const key = _presignedKeyOf(url);
+            if (!key) return url;
+            try {
+                const fresh = await s3.mediaUrl(key); // presign_get(key, 3600) 换取新签名
+                if (window.__debugLog && fresh !== url) window.__debugLog('预览刷新过期URL: ' + key);
+                return fresh || url;
+            } catch (e) { return url; }
+        }
+
+        async function openFilePreview(url, filename) {
             if (!url) return;
             filename = filename || '';
+            // 先刷新可能已过期的预签名 URL，再决定预览方式
+            url = await _refreshMediaUrl(url);
+            if (!url) return;
             const ext = (filename.split('.').pop() || '').toLowerCase();
             if (IMAGE_EXTS.indexOf(ext) !== -1) { previewImage(url, filename); return; }
             if (VIDEO_EXTS.indexOf(ext) !== -1) { openVideoPreview(url, filename); return; }

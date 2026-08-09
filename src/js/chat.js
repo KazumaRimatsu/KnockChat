@@ -824,8 +824,20 @@
             addSystemMsg(document.getElementById('publicMessages'), text);
         }
 
+        // v086: 发送期间按钮状态——禁用同时显示加载动画（spinner）
+        // sending=true 置位 .sending 类 + disabled；sending=false 恢复后由 toggle*SendBtn 按输入内容重算
+        function setSendState(btnId, sending) {
+            const btn = document.getElementById(btnId);
+            if (!btn) return;
+            btn.disabled = !!sending;
+            btn.classList.toggle('sending', !!sending);
+            if (window.__debugLog) window.__debugLog('发送按钮 ' + btnId + (sending ? ' 禁用+动画(发送中)' : ' 恢复'));
+        }
+
         function togglePublicSendBtn() {
-            document.getElementById('publicSendBtn').disabled = !document.getElementById('publicMsgInput').value.trim() &&
+            const btn = document.getElementById('publicSendBtn');
+            if (btn.classList.contains('sending')) return; // 发送中不干预，防止 oninput 误恢复按钮
+            btn.disabled = !document.getElementById('publicMsgInput').value.trim() &&
                 !replyTarget;
         }
 
@@ -987,7 +999,8 @@
                 // 自动检测并转换 URL 为 mjv064 链接格式
                 text = autoConvertUrls(text);
             }
-            document.getElementById('publicSendBtn').disabled = true;
+            // v086: 发送中禁用按钮并显示加载动画
+            setSendState('publicSendBtn', true);
             const payload = { sender: currentUser, text: text || '', msg_version: APP_VERSION, is_system: false };
             if (replyTarget) {
                 // v073 性能优化：Map O(1) 查找替代数组线性 find
@@ -1019,7 +1032,7 @@
             const result = await sendPublicMessageSecure(payload);
             if (!result.success) {
                 addPublicSystemMsg('发送失败: ' + (result.message || '未知错误'));
-                document.getElementById('publicSendBtn').disabled = false;
+                setSendState('publicSendBtn', false);
                 return;
             }
             // 已移除实时通道：直接用服务端返回的消息对象本地渲染，避免等轮询延迟
@@ -1030,6 +1043,7 @@
             input.value = '';
             autoResize(input);
             cancelPublicReply();
+            setSendState('publicSendBtn', false); // 先恢复再重算（清空输入后按钮应为禁用态）
             togglePublicSendBtn();
             activeAgent = null;
             const container = document.getElementById('publicMessages');
@@ -1058,10 +1072,13 @@
                 for (const name of mentionedNames) {
                     const agent = agents.find(a => a.name === name);
                     if (agent) {
+                        if (window.__debugLog) window.__debugLog('@触发智能体: ' + agent.name + ' (id=' + agent.id + ')');
                         await triggerAgentResponse(agent, messageText);
                     }
                 }
-            } catch (e) { /* ignore */ }
+            } catch (e) {
+                if (window.__debugLog) window.__debugLog('checkAgentMention 异常: ' + (e && e.message || e));
+            }
         }
 
         async function triggerAgentResponse(agent, userMessage) {
@@ -1429,8 +1446,8 @@
             contextTarget = { row, msgId, sender, text, type: msgType, linkUrl, imageUrl, replyToId, replyContent,
                 chatType: type };
 
-            // v080: 消息归属按 uid 判断，旧消息（无 uid）回退到用户名
-            const isOwn = senderUid ? senderUid === currentUid : sender === currentUser;
+            // 消息归属一律以 uid 判断
+            const isOwn = senderUid === currentUid;
             const canDelete = isOwn;
 
             const icons = {
@@ -1632,7 +1649,10 @@
             const href = anchor.getAttribute('href');
             if (!href || !/^(https?:|mailto:|tel:)/i.test(href)) return;
             e.preventDefault();
-            window.__TAURI__.opener.openUrl(href);
+            window.__TAURI__.opener.openUrl(href).catch((err) => {
+                // 打开失败（如 ACL 未授权）时不再产生未处理的 Promise 拒绝
+                if (window.__debugLog) window.__debugLog('外链打开失败: ' + href + ' -> ' + ((err && err.message) || err));
+            });
         });
 
         // 统一更新侧边栏选中高亮：公共会话入口与私聊列表项互斥。
@@ -1661,10 +1681,10 @@
                 return;
             }
             container.innerHTML = sessions.map(function(s) {
-                // v080: 对方以 uid 判断（旧会话无 uid 时回退用户名）
+                // 对方以 uid 判断
                 var u1 = s.user1_uid || 0, u2 = s.user2_uid || 0;
-                var other = u1 ? (u1 === currentUid ? s.user2 : s.user1) : (s.user1 === currentUser ? s.user2 : s.user1);
-                var otherUid = u1 ? (u1 === currentUid ? u2 : u1) : 0;
+                var other = u1 === currentUid ? s.user2 : s.user1;
+                var otherUid = u1 === currentUid ? u2 : u1;
                 var idx = hashStr(other) % 8;
                 var lastMsg = getMessagePreview(s.last_message) || '暂无消息';
                 var time = s.updated_at ? new Date(s.updated_at).toLocaleTimeString('zh-CN', { hour: '2-digit',
@@ -1718,15 +1738,12 @@
         async function openPrivateChat(sessionId, otherUser, otherUid) {
             privateSessionId = sessionId;
             privateOtherUser = otherUser;
-            // v080: 对方 uid——优先入参，其次从会话列表推导，最后按用户名解析
+            // 对方 uid：优先入参，其次从会话列表推导
             privateOtherUid = otherUid || 0;
             if (!privateOtherUid) {
                 const sess = (window.privateSessions || []).find(x => x.id === sessionId);
-                if (sess && (sess.user1_uid || sess.user2_uid)) {
+                if (sess) {
                     privateOtherUid = sess.user1_uid === currentUid ? (sess.user2_uid || 0) : (sess.user1_uid || 0);
-                }
-                if (!privateOtherUid && otherUser) {
-                    privateOtherUid = await resolveUserUid(otherUser);
                 }
             }
             privateChatActive = true;
@@ -1750,7 +1767,6 @@
             }
             // v069: 进入会话即标记已读并回执发送方
             await markPrivateMessagesRead(sessionId);
-            subscribePrivateChannel(sessionId);
             checkPrivacyBanner();
             updatePrivateChatStatus();
             if (privateStatusInterval) clearInterval(privateStatusInterval);
@@ -1810,7 +1826,7 @@
             const rows = document.querySelectorAll('#privateMessages .msg-row');
             rows.forEach(function(row) {
                 const suid = row.dataset.msgUid ? parseInt(row.dataset.msgUid, 10) : 0;
-                const isOwnRow = suid ? suid === currentUid : row.dataset.msgSender === currentUser;
+                const isOwnRow = suid === currentUid;
                 if (isOwnRow) {
                     const statusEl = row.querySelector('.read-status');
                     if (statusEl) {
@@ -2014,9 +2030,11 @@
         }
 
         function togglePrivateSendBtn() {
+            const btn = document.getElementById('privateSendBtn');
+            if (btn.classList.contains('sending')) return; // 发送中不干预
             const hasText = document.getElementById('privateMsgInput').value.trim();
             const hasReply = !!privateReplyTarget;
-            document.getElementById('privateSendBtn').disabled = !hasText && !hasReply;
+            btn.disabled = !hasText && !hasReply;
         }
 
         function handlePrivateKeyDown(e) {
@@ -2054,7 +2072,8 @@
             if (!text && !privateReplyTarget) { showSnackbar('消息包含不安全内容'); return; }
             // 自动检测并转换 URL 为 mjv064 链接格式
             text = autoConvertUrls(text);
-            document.getElementById('privateSendBtn').disabled = true;
+            // v086: 发送中禁用按钮并显示加载动画
+            setSendState('privateSendBtn', true);
 
             let replyPrefix = '';
             if (privateReplyTarget) {
@@ -2072,7 +2091,7 @@
                 const myMsgCount = privateMessages.filter(m => isMsgFromMe(m)).length;
                 if (myMsgCount >= 3) {
                     showSnackbar('对方暂未回复，请稍后再发送');
-                    document.getElementById('privateSendBtn').disabled = false;
+                    setSendState('privateSendBtn', false);
                     return;
                 }
             }
@@ -2103,13 +2122,13 @@
 
             if (blockedMsg) {
                 showSnackbar(blockedMsg);
-                document.getElementById('privateSendBtn').disabled = false;
+                setSendState('privateSendBtn', false);
                 return;
             }
 
             if (!newMsg && sendError) {
                 showSnackbar('发送失败: ' + (sendError.message || '请重新登录'));
-                document.getElementById('privateSendBtn').disabled = false;
+                setSendState('privateSendBtn', false);
                 return;
             }
 
@@ -2117,6 +2136,7 @@
             input.value = '';
             autoResize(input);
             cancelPrivateReply();
+            setSendState('privateSendBtn', false); // 先恢复再重算（清空输入后按钮应为禁用态）
             togglePrivateSendBtn();
         }
 

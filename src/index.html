@@ -4,8 +4,114 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>KnockChat 敲敲</title>
-    <!-- v073: supabase-js 锁定精确版本并加 SRI 完整性校验（防 CDN 投毒/浮动版本漂移） -->
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.2/dist/umd/supabase.min.js" integrity="sha384-B2duOBIryCXbX4eDE4BdJwtNkQMRQde3o6IsjfPW28E6aH1CYE96hHeZRG3zY56O" crossorigin="anonymous">
+    <!-- v085: 调试输出浮窗——IS_DEV 为真时在左下角创建，收集启动诊断/JS 错误/点击/业务日志（替代 v084 顶部红条） -->
+    <script>
+        (function() {
+            // 左下角调试浮窗：仅当 window.IS_DEV 为真时创建；日志超过上限自动清理最旧条目
+            function ensureDebugPanel() {
+                if (window.IS_DEV !== true) return null;
+                var el = document.getElementById('debugPanel');
+                if (el) return el;
+                el = document.createElement('div');
+                el.id = 'debugPanel';
+                el.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:999998;width:340px;max-width:78vw;background:rgba(10,14,20,0.94);color:#8ab4ff;font:11px/1.45 Consolas,Menlo,monospace;border:1px solid rgba(138,180,255,0.35);border-radius:8px;overflow:hidden;box-shadow:0 4px 18px rgba(0,0,0,0.5);display:flex;flex-direction:column;';
+                // 标题栏：标题 + 清空 + 折叠
+                var hd = document.createElement('div');
+                hd.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 8px;background:rgba(138,180,255,0.12);border-bottom:1px solid rgba(138,180,255,0.2);user-select:none;';
+                var title = document.createElement('span');
+                title.textContent = '调试输出';
+                title.style.cssText = 'font-weight:bold;color:#cfe0ff;margin-right:auto;';
+                var clearBtn = document.createElement('button');
+                clearBtn.textContent = '清空';
+                clearBtn.style.cssText = 'padding:1px 6px;font:inherit;color:#cfe0ff;background:transparent;border:1px solid rgba(138,180,255,0.3);border-radius:4px;cursor:pointer;';
+                var foldBtn = document.createElement('button');
+                foldBtn.textContent = '▾';
+                foldBtn.style.cssText = 'padding:1px 6px;font:inherit;color:#cfe0ff;background:transparent;border:1px solid rgba(138,180,255,0.3);border-radius:4px;cursor:pointer;';
+                var body = document.createElement('div');
+                body.id = 'debugPanelBody';
+                body.style.cssText = 'padding:6px 8px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;max-height:38vh;flex:1;';
+                clearBtn.onclick = function() { body.textContent = ''; };
+                foldBtn.onclick = function() {
+                    var collapsed = body.style.display === 'none';
+                    body.style.display = collapsed ? '' : 'none';
+                    foldBtn.textContent = collapsed ? '▾' : '▸';
+                };
+                hd.appendChild(title);
+                hd.appendChild(clearBtn);
+                hd.appendChild(foldBtn);
+                el.appendChild(hd);
+                el.appendChild(body);
+                document.documentElement.appendChild(el);
+                return el;
+            }
+
+            function debugLog(msg) {
+                try {
+                    var panel = ensureDebugPanel();
+                    if (!panel) return;
+                    var body = document.getElementById('debugPanelBody');
+                    var line = document.createElement('div');
+                    line.style.cssText = 'padding:1px 0;';
+                    line.textContent = '[' + new Date().toTimeString().slice(0, 8) + '] ' + msg;
+                    body.appendChild(line);
+                    body.scrollTop = body.scrollHeight;
+                    while (body.childElementCount > 300) body.removeChild(body.firstChild);
+                } catch (e) {}
+            }
+
+            // 暴露给业务脚本：window.__debugLog(msg)（旧名 __bootErr 保留）可在任意位置输出到调试浮窗
+            window.__bootErr = debugLog;
+            window.__debugLog = debugLog;
+
+            // 捕获 JS 运行时错误（含资源加载失败）
+            window.addEventListener('error', function(e) {
+                var src = '';
+                if (e && e.filename) {
+                    var fn = e.filename.replace(/^.*[\\\/]/, '');
+                    src = ' @ ' + fn + ':' + e.lineno + ':' + e.colno;
+                }
+                debugLog((e && e.message) || ('脚本错误' + src));
+            }, true);
+
+            // 捕获阶段监听点击：确认点击是否真正到达目标元素（排查"点了没反应"）
+            document.addEventListener('click', function(e) {
+                try {
+                    var t = e.target;
+                    if (!t || t === document.documentElement || t === document.body) return;
+                    var desc = (t.tagName || '').toLowerCase();
+                    if (t.id) desc += '#' + t.id;
+                    var cls = t.className;
+                    if (cls && typeof cls === 'string' && cls.trim()) {
+                        desc += '.' + String(cls).split(/\s+/).slice(0, 3).join('.');
+                    }
+                    var oc = t.getAttribute && t.getAttribute('onclick');
+                    if (oc) desc += '[onclick=' + oc + ']';
+                    debugLog('点击: ' + desc);
+                } catch (e2) {}
+            }, true);
+
+            // 未处理的 Promise 拒绝
+            window.addEventListener('unhandledrejection', function(e) {
+                var r = e && e.reason;
+                debugLog('未处理的 Promise 拒绝: ' + ((r && r.message) || r));
+            });
+
+            // 启动诊断：核心函数/依赖是否就绪
+            window.addEventListener('DOMContentLoaded', function() {
+                try {
+                    var info = '诊断: doLogin=' + typeof window.doLogin +
+                        ', quickLogin=' + typeof window.quickLogin +
+                        ', s3=' + (window.s3 ? 'ok' : 'missing');
+                    var btn = document.querySelector('[onclick="doLogin()"]');
+                    info += ', loginBtn=' + (btn ? 'ok' : 'missing');
+                    var auth = document.getElementById('authContainer');
+                    info += ', authContainer=' + (auth ? 'ok' : 'missing');
+                    debugLog(info);
+                } catch (e) {
+                    debugLog('诊断失败: ' + e.message);
+                }
+            });
+        })();
     </script>
     <script>
         /* === Global Control Flag === */
@@ -231,7 +337,7 @@
                     </button>
                     <div class="input-container"><textarea class="msg-input" id="publicMsgInput" placeholder="按Enter发送，Ctrl/Shift+Enter换行" rows="1" oninput="autoResize(this);togglePublicSendBtn();updateMentionFromInput(this)" onkeydown="handlePublicKeyDown(event)"></textarea></div>
                     <button class="fab-send" id="publicSendBtn" onclick="sendPublicMsg()" disabled>
-                        <svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
+                        <span class="send-spinner"></span><svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
                     </button>
                 </div>
                 <div class="mention-menu" id="publicMentionMenu"></div><div class="feature-panel" id="publicFeaturePanel">
@@ -300,7 +406,7 @@
                         <textarea class="msg-input" id="privateMsgInput" placeholder="发送消息..." rows="1" oninput="autoResize(this);togglePrivateSendBtn()" onkeydown="handlePrivateKeyDown(event)"></textarea>
                     </div>
                     <button class="fab-send" id="privateSendBtn" onclick="sendPrivateMsg()" disabled>
-                        <svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
+                        <span class="send-spinner"></span><svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
                     </button>
                 </div>
                 <div class="feature-panel" id="privateFeaturePanel">
@@ -593,7 +699,7 @@
                 </div>
                 <div class="auth-form" id="loginNormalForm">
                     <div class="auth-error" id="loginError"></div>
-                    <div class="wc-input"><input type="text" id="loginUsername" placeholder="昵称" onkeypress="if(event.key==='Enter')doLogin()"></div>
+                    <div class="wc-input"><input type="text" id="loginUsername" placeholder="UID" onkeypress="if(event.key==='Enter')doLogin()"></div>
                     <div class="wc-input"><input type="password" id="loginPassword" placeholder="密码" onkeypress="if(event.key==='Enter')doLogin()"></div>
                     <button class="wc-btn" onclick="doLogin()">登录</button>
                 </div>

@@ -2,7 +2,7 @@
 
         let currentUser = '';
         // v080: uid 是区分用户的唯一身份标记（类 QQ 号，从 1 递增）；username 仅作展示。
-        // 所有身份判断（消息归属/私聊会话双方/黑名单）一律以 uid 为准，旧消息无 sender_uid 时回退到用户名。
+        // 所有身份判断（消息归属/私聊会话双方/黑名单）一律以 uid 为准。
         let currentUid = 0;
         // v039: Global flag for login blocked by cloud control
         var _loginBlockedByCC = false;
@@ -73,11 +73,10 @@
             } catch (e) { return ''; }
         }
 
-        // v080: 消息是否由「我」发出——优先按 sender_uid 判断，旧消息（无 sender_uid）回退到用户名
+        // 消息是否由「我」发出（一律以 sender_uid 为准）
         function isMsgFromMe(msg) {
             if (!msg) return false;
-            if (typeof msg.sender_uid === 'number' && msg.sender_uid > 0) return msg.sender_uid === currentUid;
-            return msg.sender !== undefined && msg.sender === currentUser;
+            return msg.sender_uid === currentUid;
         }
 
         // v080: 按用户名解析 uid（get_user_profile 兼容按用户名查询）
@@ -212,6 +211,8 @@
 
         // v040+: 一键登录——有有效会话时直接验证进入（对齐新版 MJChat），无会话/会话过期则转密码表单
         async function quickLogin() {
+            // v085: 调试日志
+            if (window.__debugLog) window.__debugLog('quickLogin 被调用');
             // 解锁浏览器音频限制（对齐新版 MJChat quickLogin 行为）
             try {
                 var silentAudio = new Audio('data:audio/mp3;base64,//NExAAAAANIAAAAAExBTUUzLjEwMKqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq');
@@ -235,6 +236,7 @@
                 if (savedSession.pwhash) {
                     // 一键登录：服务端校验会话后进入（复用启动时的会话恢复逻辑）
                     showGlobalLoading('欢迎回来…', '正在登录 ' + currentUser);
+                    if (window.__debugLog) window.__debugLog('快速登录: 尝试恢复会话 ' + currentUser + ' (uid=' + currentUid + ')');
                     restoreSession(null);
                     return;
                 }
@@ -452,6 +454,8 @@
         }
 
         async function doLogin() {
+            // v085: 调试日志——确认 doLogin 被真正触发（显示在 IS_DEV 的左下角调试浮窗）
+            if (window.__debugLog) window.__debugLog('doLogin 被调用');
             hideEl('loginError');
             const username = document.getElementById('loginUsername').value.trim();
             const password = document.getElementById('loginPassword').value;
@@ -504,47 +508,12 @@
                         loginError = secureError;
                     }
                 } catch (e) {
-                    // v040: Rate-limited RPC might not exist, fall through
+                    // RPC 调用异常：记录错误继续
                     loginError = e;
                     console.warn('[login] verify_login_secure_rate_limited failed:', e.message || e);
                 }
 
-                // v040: Fallback to regular secure login
-                if (!userData && loginError) {
-                    try {
-                        const { data: secureData, error: secureError } = await s3.rpc('verify_login_secure', {
-                            p_username: username,
-                            p_password_hash: passwordHash
-                        });
-                        if (!secureError && secureData) {
-                            userData = secureData;
-                            loginError = null;
-                        } else if (secureError) {
-                            loginError = secureError;
-                        }
-                    } catch (e) { loginError = e;
-                        console.warn('[login] verify_login_secure failed:', e.message || e); }
-                }
-
-                // v040: If first attempts failed, try legacy RPC
-                if (!userData && loginError) {
-                    try {
-                        const { data: legacyData, error: legacyError } = await s3.rpc('verify_login', {
-                            p_username: username,
-                            p_password_hash: passwordHash
-                        });
-                        if (!legacyError && legacyData) {
-                            userData = legacyData;
-                            loginError = null;
-                        } else if (legacyError) {
-                            loginError = legacyError;
-                        }
-                    } catch (e) {
-                        // All RPC calls failed, keep the original loginError
-                    }
-                }
-
-                // v040: Check if timeout occurred during RPC calls
+                // 检查是否超时
                 if (_loginTimedOut) return;
 
                 if (loginError) {
@@ -611,11 +580,13 @@
                     }
                 } catch (ccErr) { /* ignore */ }
                 recordLastLogin(username);
+                if (window.__debugLog) window.__debugLog('登录成功: ' + currentUser + ' (uid=' + currentUid + ')');
                 authorizeEnterApp();
                 enterApp();
             } catch (e) {
                 clearTimeout(_loginTimeout);
                 hideGlobalLoading();
+                if (window.__debugLog) window.__debugLog('doLogin 异常: ' + (e && e.message || e));
                 if (!_loginTimedOut) {
                     showEl('loginError', '登录失败，请重试');
                 }
@@ -644,6 +615,7 @@
                 window.__mjchatSafetyTimeout = null;
             }
             _enterAppAuthorized = false;
+            if (window.__debugLog) window.__debugLog('进入主界面: ' + currentUser + ' (uid=' + currentUid + ')');
             showGlobalLoading('连接中', '正在加载数据');
             document.getElementById('authContainer').style.display = 'none';
             document.getElementById('appContainer').style.display = 'flex';
@@ -712,6 +684,7 @@
             } catch (err) {
                 hideGlobalLoading();
                 showLogin();
+                if (window.__debugLog) window.__debugLog('enterApp 失败: ' + (err.message || err));
                 showEl('loginError', '连接失败: ' + (err.message || '请检查网络'));
                 console.error('enterApp error:', err);
             }
@@ -962,10 +935,12 @@
                 loadPublicHistory()
                     .then(() => {
                         updatePublicConn(true);
+                        if (window.__debugLog) window.__debugLog('公聊连接成功');
                         if (!resolved) { resolved = true; resolve(); }
                     })
                     .catch(err => {
                         updatePublicConn(false);
+                        if (window.__debugLog) window.__debugLog('公聊连接失败: ' + (err.message || err));
                         if (!resolved) { resolved = true; reject(err); }
                     });
                 setTimeout(() => {
@@ -1013,7 +988,9 @@
                         updateScrollButton(container);
                     }
                 });
-            } catch (e) { /* silent fail */ }
+            } catch (e) {
+                if (window.__debugLog) window.__debugLog('公聊轮询失败: ' + (e && e.message || e));
+            }
         }
 
         async function loadPublicHistory() {
@@ -1021,6 +998,7 @@
                 const res = await s3.rpc('get_public_messages', { p_limit: HISTORY_LIMIT });
                 if (res.error || !Array.isArray(res.data)) {
                     console.error('loadPublicHistory error:', res.error);
+                    if (window.__debugLog) window.__debugLog('加载公聊历史失败: ' + ((res.error && res.error.message) || res.error));
                     if (publicMessages.length === 0) {
                         addPublicSystemMsg('加载历史消息失败');
                     } else {
@@ -1162,16 +1140,11 @@
                     }
                     return;
                 }
-                // v080: 会话归属按 uid 判断（旧会话无 user1_uid/user2_uid 时回退用户名）
+                // 会话归属按 uid 判断
                 const filtered = sessions.filter(s => {
                     const u1 = s.user1_uid || 0, u2 = s.user2_uid || 0;
-                    if (u1) {
-                        if (u1 === currentUid) return !s.deleted_by_user1;
-                        if (u2 === currentUid) return !s.deleted_by_user2;
-                        return false;
-                    }
-                    if (s.user1 === currentUser) return !s.deleted_by_user1;
-                    if (s.user2 === currentUser) return !s.deleted_by_user2;
+                    if (u1 === currentUid) return !s.deleted_by_user1;
+                    if (u2 === currentUid) return !s.deleted_by_user2;
                     return false;
                 });
                 window.privateSessions = filtered;
@@ -1180,8 +1153,7 @@
                 setCachedSessions(filtered);
                 const otherUsers = filtered.map(s => {
                     const u1 = s.user1_uid || 0, u2 = s.user2_uid || 0;
-                    if (u1) return u1 === currentUid ? s.user2 : s.user1;
-                    return s.user1 === currentUser ? s.user2 : s.user1;
+                    return u1 === currentUid ? s.user2 : s.user1;
                 });
                 await loadUserAvatars(otherUsers);
                 renderPrivateList();
@@ -1379,12 +1351,6 @@
                 privateLoadingMore = false;
                 showPrivateLoadMore(false);
             }
-        }
-
-        function subscribePrivateChannel(sessionId) {
-            // 已移除 Supabase Realtime：私聊新消息统一由 loadPrivateMessages 轮询驱动，
-            // 本函数保留为空实现以兼容旧调用方（openPrivateChat 等）。
-            void sessionId;
         }
 
         async function deletePrivateChat() {

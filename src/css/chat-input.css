@@ -152,6 +152,33 @@
     fill: currentColor;
 }
 
+/* v086: 发送中加载动画——发送期间按钮禁用并把发送图标替换为旋转圆环 */
+.public-page .chat-bar .fab-send .send-spinner,
+.private-page .chat-bar .fab-send .send-spinner {
+    display: none;
+    width: 20px;
+    height: 20px;
+    box-sizing: border-box;
+    border-radius: 50%;
+    border: 2.5px solid currentColor;
+    border-top-color: transparent;
+    animation: md-send-spin 0.8s linear infinite;
+}
+
+.public-page .chat-bar .fab-send.sending .send-spinner,
+.private-page .chat-bar .fab-send.sending .send-spinner {
+    display: block;
+}
+
+.public-page .chat-bar .fab-send.sending svg,
+.private-page .chat-bar .fab-send.sending svg {
+    display: none;
+}
+
+@keyframes md-send-spin {
+    to { transform: rotate(360deg); }
+}
+
 /* --- 功能面板（输入栏上方展开） --- */
 .feature-panel {
     flex-shrink: 0;

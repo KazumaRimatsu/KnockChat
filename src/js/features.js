@@ -27,7 +27,9 @@
                 const res = await s3.rpc('upload_media', {
                     p_key: filePath,
                     p_base64: b64,
-                    p_content_type: contentType || 'application/octet-stream'
+                    p_content_type: contentType || 'application/octet-stream',
+                    p_uid: currentUid,
+                    p_session_token: getSessionToken()
                 });
                 if (res.error) {
                     showSnackbar('上传失败: ' + res.error.message);
@@ -484,6 +486,9 @@
             }
 
             showSnackbar(`正在上传 ${files.length} 张图片...`);
+            // v086: 上传+发送期间发送按钮禁用并显示加载动画（公聊/私聊各自按钮）
+            const sendBtnId = isPrivate ? 'privateSendBtn' : 'publicSendBtn';
+            setSendState(sendBtnId, true);
 
             // v069: 逐张压缩 + 上传，单张失败跳过继续（不整批中止）；GIF 跳过压缩保留动画
             const imageUrls = [];
@@ -520,6 +525,8 @@
             }
             if (imageUrls.length === 0) {
                 showSnackbar('没有成功上传的图片');
+                setSendState(sendBtnId, false);
+                if (isPrivate) togglePrivateSendBtn(); else togglePublicSendBtn();
                 return;
             }
 
@@ -552,6 +559,8 @@
                     showSnackbar('发送图片失败: ' + (result.message || ''));
                 }
             }
+            setSendState(sendBtnId, false);
+            if (isPrivate) togglePrivateSendBtn(); else togglePublicSendBtn();
         }
 
         // 剪贴板粘贴图片直接发送
@@ -627,16 +636,24 @@
             const sizeErr = fileSizeError(file, MAX_FILE_SIZE, '文件');
             if (sizeErr) { showSnackbar(sizeErr); return; }
             showSnackbar('正在上传文件...');
+            // v086: 上传+发送期间发送按钮禁用并显示加载动画
+            setSendState('publicSendBtn', true);
             const ext = file.name.split('.').pop() || 'file';
             const filePath = `public/${Date.now()}-${generateId()}.${ext}`;
             try {
                 const url = await uploadToBucket(filePath, file, file.type || 'application/octet-stream');
-                if (!url) return;
+                if (!url) {
+                    setSendState('publicSendBtn', false);
+                    togglePublicSendBtn();
+                    return;
+                }
                 const fileSize = (file.size / 1024).toFixed(1);
                 const fileText = buildFileText(file.name, fileSize, url);
                 const ieResult = await sendPublicMessageSecure({ text: fileText, is_system: false });
                 if (!ieResult.success) showSnackbar('发送文件失败: ' + (ieResult.message || ''));
             } catch (e) { showSnackbar('上传失败'); }
+            setSendState('publicSendBtn', false);
+            togglePublicSendBtn();
         }
 
         function buildFileText(filename, fileSize, url) {

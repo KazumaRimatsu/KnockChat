@@ -8,7 +8,7 @@ userdata/
 临时/
 
 src-tauri/target/
-src-tauri/s3-config.json
+s3-config.json
 # Logs
 logs
 *.log

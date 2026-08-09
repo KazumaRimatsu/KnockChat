@@ -62,13 +62,7 @@ fn user_key(uid: u64) -> String {
 }
 
 /// 统一用户索引：users/_index.json 存 { username: uid }
-/// 取代早期 users/by_name/<enc>.json 逐文件反向索引（减少对象数量、免全桶扫描）。
 const USER_INDEX_KEY: &str = "users/_index.json";
-
-/// 用户名 → uid 反向索引（旧版路径，仅用于兼容迁移与清理）
-fn user_name_index(username: &str) -> String {
-    format!("users/by_name/{}.json", enc(username))
-}
 
 /// 读取统一用户索引（username → uid 映射）
 async fn user_index_map(s3: &Arc<S3>) -> Result<Value, String> {
@@ -248,20 +242,99 @@ async fn save_user(s3: &Arc<S3>, uid: u64, v: &Value) -> Result<(), String> {
     json_put(s3, &user_key(uid), v).await
 }
 
-/// 通过用户名查 uid（优先统一索引；旧 by_name 索引命中后迁移并清理）
-async fn uid_by_name(s3: &Arc<S3>, username: &str) -> Result<Option<u64>, String> {
-    if let Some(uid) = user_index_map(s3).await?.get(username).and_then(|v| v.as_u64()) {
-        return Ok(Some(uid));
+// ==================== 细分限制（restrictions） ====================
+//
+// users/<uid>.json 的 "restrictions" 字段为限制对象，每项：
+//   "<name>": { "enabled": true, "until": "ISO-8601 或空串" }
+// 支持的限制项：
+//   login        禁止登录
+//   public_text  公聊发送文字消息
+//   public_media 公聊发送文件/图片/语音/链接等多媒体消息
+//   new_private  发起新的私聊会话
+//   private_msg  发送私聊消息
+//   profile_edit 修改头像与背景（含主页资料）
+// 定时解封：until 到期后在任何检查点懒清除（自动恢复），无需定时任务。
+// 智能体（role: "agent"）不受任何限制。
+
+/// 限制项的中文提示（供 RPC 返回 message）
+fn restriction_msg(name: &str) -> &'static str {
+    match name {
+        "login" => "您的账户已被限制登录",
+        "public_text" => "您已被限制发送公聊文字消息",
+        "public_media" => "您已被限制发送公聊文件/图片等多媒体消息",
+        "new_private" => "您已被限制发起新的私聊",
+        "private_msg" => "您已被限制发送私聊消息",
+        "profile_edit" => "您已被限制修改头像与背景",
+        _ => "您已被限制该操作",
     }
-    // 兼容旧数据：users/by_name/<enc>.json 兜底，命中后迁入统一索引并删除旧键
-    if let Some(v) = json_get(s3, &user_name_index(username)).await? {
-        if let Some(uid) = v["uid"].as_u64() {
-            let _ = user_index_put(s3, username, uid).await;
-            let _ = s3.delete_object(&user_name_index(username)).await;
-            return Ok(Some(uid));
+}
+
+/// 同步判断用户是否受 name 限制（不写回）。Some = 受限（含过期未清除的视为不限）。
+fn restriction_blocked(user: &Value, name: &str) -> bool {
+    if user["role"].as_str() == Some("agent") {
+        return false; // 智能体不受限
+    }
+    let Some(r) = user["restrictions"].get(name) else {
+        return false;
+    };
+    if r["enabled"].as_bool().unwrap_or(false) != true {
+        return false;
+    }
+    let until = r["until"].as_str().unwrap_or("");
+    if !until.is_empty() {
+        if let Ok(exp) = chrono::DateTime::parse_from_rfc3339(until) {
+            if exp <= Utc::now() {
+                return false; // 已到期，视为未受限（懒清除由 check_restriction 完成）
+            }
         }
     }
-    Ok(None)
+    true
+}
+
+/// 异步检查用户是否受 name 限制，返回 true=允许。过期时自动懒清除并写回。
+async fn check_restriction(s3: &Arc<S3>, uid: u64, name: &str) -> Result<bool, String> {
+    let Some(mut user) = get_user(s3, uid).await? else {
+        return Ok(true);
+    };
+    if user["role"].as_str() == Some("agent") {
+        return Ok(true);
+    }
+    let Some(r) = user["restrictions"].get(name) else {
+        return Ok(true);
+    };
+    if r["enabled"].as_bool().unwrap_or(false) != true {
+        return Ok(true);
+    }
+    let until = r["until"].as_str().unwrap_or("");
+    if !until.is_empty() {
+        if let Ok(exp) = chrono::DateTime::parse_from_rfc3339(until) {
+            if exp <= Utc::now() {
+                // 定时解封到期：清除该限制并写回
+                if let Some(ro) = user["restrictions"].as_object_mut() {
+                    ro.remove(name);
+                    save_user(s3, uid, &user).await?;
+                }
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// 当前生效的细分限制列表（供登录/会话响应返回给前端展示）
+fn active_restrictions(user: &Value) -> Vec<&str> {
+    let mut out = Vec::new();
+    for name in ["login", "public_text", "public_media", "new_private", "private_msg", "profile_edit"] {
+        if restriction_blocked(user, name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// 通过用户名查 uid（统一索引 users/_index.json）
+async fn uid_by_name(s3: &Arc<S3>, username: &str) -> Result<Option<u64>, String> {
+    Ok(user_index_map(s3).await?.get(username).and_then(|v| v.as_u64()))
 }
 
 async fn get_user_by_name(s3: &Arc<S3>, username: &str) -> Result<Option<Value>, String> {
@@ -347,26 +420,46 @@ pub async fn s3rpc_register_user(params: Value) -> Result<Value, String> {
 }
 
 async fn do_login(s3: &Arc<S3>, username: &str, password_hash: &str) -> Result<Value, String> {
-    let Some(user) = get_user_by_name(s3, username).await? else {
-        return Ok(json!({ "success": false, "message": "昵称或密码错误" }));
+    // v087: 仅支持 uid 登录（昵称登录已移除）——入参必须是纯数字 uid
+    let input = username.trim();
+    let uid = match input.parse::<u64>() {
+        Ok(uid) => uid,
+        Err(_) => return Ok(json!({ "success": false, "message": "UID格式错误，请输入纯数字UID" })),
+    };
+    let user = get_user(s3, uid).await?; // 网络错误向上传播
+    let Some(mut user) = user else {
+        return Ok(json!({ "success": false, "message": "UID或密码错误" }));
     };
     if user["password_hash"].as_str().unwrap_or("") != password_hash {
-        return Ok(json!({ "success": false, "message": "昵称或密码错误" }));
+        return Ok(json!({ "success": false, "message": "UID或密码错误" }));
     }
     if user["banned"].as_bool().unwrap_or(false) {
         return Ok(json!({ "success": true, "banned": true, "message": "您的账户已被封禁，无法登录" }));
     }
-    let uid = user["uid"].as_u64().unwrap_or(0);
-    let token = create_session(s3, uid, username).await?;
+    // 细分限制：登录限制（含定时解封——到期自动清除后放行）
+    if restriction_blocked(&user, "login") {
+        return Ok(json!({ "success": true, "banned": true, "message": restriction_msg("login") }));
+    }
+    if let Some(ro) = user["restrictions"].as_object_mut() {
+        if ro.contains_key("login") {
+            ro.remove("login"); // 过期限制在此懒清除
+            save_user(s3, uid, &user).await?;
+        }
+    }
+    let uid = user["uid"].as_u64().unwrap_or(uid);
+    // 会话以用户记录中的真实昵称为准（入参是数字 uid）
+    let real_name = user["username"].as_str().unwrap_or(input).to_string();
+    let token = create_session(s3, uid, &real_name).await?;
     let avatar = user["avatar_url"].as_str().unwrap_or("");
     Ok(json!({
         "success": true,
         "uid": uid,
-        "username": username,
+        "username": real_name,
         "session_token": token,
         "avatar_url": avatar,
         "banned": false,
-        "role": user["role"].as_str().unwrap_or("user")
+        "role": user["role"].as_str().unwrap_or("user"),
+        "restrictions": active_restrictions(&user)
     }))
 }
 
@@ -401,6 +494,7 @@ async fn do_verify_session(s3: &Arc<S3>, uid: u64, username: &str, token: &str) 
         "username": name,
         "avatar_url": user["avatar_url"].as_str().unwrap_or(""),
         "banned": user["banned"].as_bool().unwrap_or(false),
+        "restrictions": active_restrictions(&user),
         "needs_relogin": false
     }))
 }
@@ -410,12 +504,6 @@ pub async fn s3rpc_verify_session_secure(params: Value) -> Result<Value, String>
     let uid = params["p_uid"].as_u64().unwrap_or(0);
     let username = params["p_username"].as_str().unwrap_or("");
     let token = params["p_token"].as_str().or_else(|| params["p_session_token"].as_str()).unwrap_or("");
-    // 兼容旧客户端只传 username：通过反向索引解析 uid
-    let uid = if uid == 0 && !username.is_empty() {
-        uid_by_name(&s, username).await?.unwrap_or(0)
-    } else {
-        uid
-    };
     if uid == 0 {
         return Ok(json!({ "success": true, "valid": false }));
     }
@@ -459,11 +547,10 @@ pub async fn s3rpc_delete_my_account(params: Value) -> Result<Value, String> {
         return Ok(json!({ "success": false, "message": "密码错误" }));
     }
     let username = user["username"].as_str().unwrap_or("");
-    // 删除用户资料与统一索引（及旧版 by_name 索引）
+    // 删除用户资料与统一索引
     s.delete_object(&user_key(uid)).await?;
     if !username.is_empty() {
         let _ = user_index_remove(&s, &username).await;
-        let _ = s.delete_object(&user_name_index(&username)).await;
     }
     // 删除该用户的会话
     let sess_keys = s.list_objects("sessions/").await?;
@@ -556,6 +643,16 @@ pub async fn s3rpc_send_public_message_secure(params: Value) -> Result<Value, St
     if !verify_session(&s, uid, token).await? {
         return Ok(json!({ "success": false, "message": "请重新登录" }));
     }
+    // 细分限制：带附件（图片/语音）或含链接的消息按"多媒体"限制，纯文字按"文字"限制
+    let text = params["p_text"].as_str().unwrap_or("");
+    let has_media = !params["p_image_url"].as_str().unwrap_or("").is_empty()
+        || !params["p_audio_url"].as_str().unwrap_or("").is_empty();
+    let has_link = !text.is_empty()
+        && (text.contains("://") || text.to_ascii_lowercase().starts_with("www."));
+    let restr = if has_media || has_link { "public_media" } else { "public_text" };
+    if !check_restriction(&s, uid, restr).await? {
+        return Ok(json!({ "success": false, "message": restriction_msg(restr) }));
+    }
     let user = get_user(&s, uid).await?.unwrap_or_else(|| json!({}));
     let username = user["username"].as_str().unwrap_or("");
     let msg = json!({
@@ -587,16 +684,8 @@ pub async fn s3rpc_delete_public_message(params: Value) -> Result<Value, String>
     let key = pub_msg_key(msg_id);
     if let Some(msg) = json_get(&s, &key).await? {
         let owner = msg["sender_uid"].as_u64().unwrap_or(0);
-        if owner != 0 {
-            if owner != uid {
-                return Ok(json!({ "success": false, "message": "只能删除自己的消息" }));
-            }
-        } else if msg["sender"].as_str().unwrap_or("") != "" {
-            // 兼容旧消息（无 sender_uid）：按用户名比对
-            let user = get_user(&s, uid).await?.unwrap_or_else(|| json!({}));
-            if msg["sender"].as_str().unwrap_or("") != user["username"].as_str().unwrap_or("") {
-                return Ok(json!({ "success": false, "message": "只能删除自己的消息" }));
-            }
+        if owner != 0 && owner != uid {
+            return Ok(json!({ "success": false, "message": "只能删除自己的消息" }));
         }
     }
     s.delete_object(&key).await?;
@@ -663,6 +752,10 @@ pub async fn s3rpc_create_private_session(params: Value) -> Result<Value, String
             json_put(&s, &key, &v).await?;
         }
         None => {
+            // 细分限制：仅真正"新建会话"时拦截；已有会话重新激活不视为新发起
+            if !check_restriction(&s, user1_uid, "new_private").await? {
+                return Ok(json!({ "success": false, "message": restriction_msg("new_private") }));
+            }
             let v = json!({
                 "id": sid,
                 "user1_uid": user1_uid,
@@ -726,6 +819,10 @@ pub async fn s3rpc_send_private_message(params: Value) -> Result<Value, String> 
     if !verify_session(&s, sender_uid, token).await? {
         return Ok(json!({ "success": false, "message": "请重新登录" }));
     }
+    // 细分限制：禁止发送私聊消息
+    if !check_restriction(&s, sender_uid, "private_msg").await? {
+        return Ok(json!({ "success": false, "message": restriction_msg("private_msg") }));
+    }
     let Some(mut sess) = session_accessible(&s, sid, sender_uid).await? else {
         return Ok(json!({ "success": false, "message": "会话不存在或无权访问" }));
     };
@@ -786,16 +883,8 @@ pub async fn s3rpc_delete_private_message(params: Value) -> Result<Value, String
     let key = priv_msg_key(sid, msg_id);
     if let Some(msg) = json_get(&s, &key).await? {
         let owner = msg["sender_uid"].as_u64().unwrap_or(0);
-        if owner != 0 {
-            if owner != uid {
-                return Ok(json!({ "success": false, "message": "只能删除自己的消息" }));
-            }
-        } else {
-            // 兼容旧消息：按用户名比对
-            let user = get_user(&s, uid).await?.unwrap_or_else(|| json!({}));
-            if msg["sender"].as_str().unwrap_or("") != user["username"].as_str().unwrap_or("") {
-                return Ok(json!({ "success": false, "message": "只能删除自己的消息" }));
-            }
+        if owner != 0 && owner != uid {
+            return Ok(json!({ "success": false, "message": "只能删除自己的消息" }));
         }
     }
     s.delete_object(&key).await?;
@@ -826,6 +915,10 @@ pub async fn s3rpc_update_avatar(params: Value) -> Result<Value, String> {
     let s = s3()?;
     let uid = params["p_uid"].as_u64().unwrap_or(0);
     let avatar_url = params["p_avatar_url"].as_str().unwrap_or("");
+    // 细分限制：禁止修改头像与背景
+    if uid != 0 && !check_restriction(&s, uid, "profile_edit").await? {
+        return Ok(json!({ "success": false, "message": restriction_msg("profile_edit") }));
+    }
     if let Some(mut user) = get_user(&s, uid).await? {
         user["avatar_url"] = json!(avatar_url);
         save_user(&s, uid, &user).await?;
@@ -839,6 +932,10 @@ pub async fn s3rpc_upsert_user_profile(params: Value) -> Result<Value, String> {
     let Some(mut user) = get_user(&s, uid).await? else {
         return Ok(json!({ "success": false, "message": "用户不存在" }));
     };
+    // 细分限制：禁止修改头像与背景（含主页资料）
+    if uid != 0 && !check_restriction(&s, uid, "profile_edit").await? {
+        return Ok(json!({ "success": false, "message": restriction_msg("profile_edit") }));
+    }
     for (field, key) in [
         ("p_email", "email"),
         ("p_birthday", "birthday"),
@@ -895,13 +992,12 @@ pub async fn s3rpc_update_username(params: Value) -> Result<Value, String> {
     if rename_count >= MAX_USERNAME_RENAMES_PER_DAY {
         return Ok(json!({ "success": false, "message": "今日昵称修改次数已达上限（每天 5 次）" }));
     }
-    // 执行改名：更新用户文件 + 重建统一索引（并清理旧版 by_name 索引）
+    // 执行改名：更新用户文件 + 重建统一索引
     user["username"] = json!(new_name);
     user["renames"] = json!({ "date": today, "count": rename_count + 1 });
     save_user(&s, uid, &user).await?;
     if !old_name.is_empty() {
         let _ = user_index_remove(&s, &old_name).await;
-        let _ = s.delete_object(&user_name_index(&old_name)).await;
     }
     user_index_put(&s, &new_name, uid).await?;
     Ok(json!({
@@ -1198,6 +1294,27 @@ fn media_upload_limit(key: &str) -> usize {
 pub async fn s3rpc_upload_media(params: Value) -> Result<Value, String> {
     let s = s3()?;
     let key = media_key_of(&params)?;
+    // 会话校验 + 细分限制
+    let uid = params["p_uid"].as_u64().unwrap_or(0);
+    let token = params["p_session_token"].as_str().unwrap_or("");
+    if !verify_session(&s, uid, token).await? {
+        return Ok(json!({ "success": false, "message": "请重新登录" }));
+    }
+    let k = key.strip_prefix("media/").unwrap_or(&key);
+    let restr = if k.starts_with("avatars/") || k.starts_with("background/") {
+        Some("profile_edit") // 头像/背景 → 修改头像与背景限制
+    } else if k.starts_with("chat/") || k.starts_with("public/") {
+        Some("public_media") // 公聊图片/文件/语音 → 公聊多媒体限制
+    } else if k.starts_with("private/") {
+        Some("private_msg") // 私聊附件/语音 → 私聊消息限制
+    } else {
+        None
+    };
+    if let Some(name) = restr {
+        if !check_restriction(&s, uid, name).await? {
+            return Ok(json!({ "success": false, "message": restriction_msg(name) }));
+        }
+    }
     let b64 = params["p_base64"].as_str().unwrap_or("");
     let content_type = params["p_content_type"].as_str().unwrap_or("application/octet-stream");
     let bytes = S3::decode_base64(b64)?;
@@ -1494,7 +1611,6 @@ pub async fn s3rpc_delete_agent_rpc(params: Value) -> Result<Value, String> {
                 if user["role"].as_str().unwrap_or("user") == "agent" {
                     let _ = s.delete_object(&user_key(uid)).await;
                     let _ = user_index_remove(&s, name).await;
-                    let _ = s.delete_object(&user_name_index(name)).await;
                 }
             }
         }
