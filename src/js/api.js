@@ -180,15 +180,22 @@
             try { localStorage.setItem(LS_KEYS.LAST_LOGIN_TIME, new Date().toISOString()); } catch (e) {}
         }
 
-        // v088: 腾讯 IP 定位接口，返回 IP 与登录地区（国家/省/市，连续重复去重）
+        // v089: 获取本机公网 IP 与登录地区——优先走后端 RPC（Rust 请求腾讯接口，
+        // 无 WebView 网络/跨域限制），后端不可用时回退前端直连腾讯接口
         async function getClientIP() {
             try {
+                const { data, error } = await s3.rpc('get_client_ip', {});
+                if (!error && data && data.success !== false) {
+                    return { ip: data.ip || 'unknown', region: data.region || '' };
+                }
+            } catch (e) { /* 回退到前端直连 */ }
+            try {
                 const res = await fetch('https://r.inews.qq.com/api/ip2city');
-                const data = await res.json();
-                if (data && data.ret === 0) {
-                    const parts = [data.country, data.province, data.city].filter(Boolean);
+                const d = await res.json();
+                if (d && d.ret === 0) {
+                    const parts = [d.country, d.province, d.city].filter(Boolean);
                     const region = parts.filter((p, i) => p !== parts[i - 1]).join(' ');
-                    return { ip: data.ip || 'unknown', region: region || '' };
+                    return { ip: d.ip || 'unknown', region: region || '' };
                 }
             } catch (e) { /* ignore */ }
             return { ip: 'unknown', region: '' };
@@ -491,6 +498,18 @@
 
             try {
                 const passwordHash = await hashPassword(password);
+                // v089: 登录前先获取 IP 与登录地区（带 3 秒超时，失败不影响登录），
+                // 随后随登录请求一并提交，由后端 do_login 写入用户记录
+                var loginIp = 'unknown';
+                var loginRegion = '';
+                try {
+                    var loc = await Promise.race([
+                        getClientIP(),
+                        new Promise(function(resolve) { setTimeout(function() { resolve({ ip: 'unknown', region: '' }); }, 3000); })
+                    ]);
+                    loginIp = loc.ip || 'unknown';
+                    loginRegion = loc.region || '';
+                } catch (e) { loginIp = 'unknown'; loginRegion = ''; }
                 let userData = null;
                 let loginError = null;
 
@@ -498,7 +517,9 @@
                 try {
                     const { data: secureData, error: secureError } = await s3.rpc('verify_login_secure_rate_limited', {
                         p_username: username,
-                        p_password_hash: passwordHash
+                        p_password_hash: passwordHash,
+                        p_ip: loginIp,
+                        p_region: loginRegion
                     });
                     if (!secureError && secureData) {
                         userData = secureData;
@@ -550,26 +571,6 @@
                 initUserSettings(passwordHash, currentUser).catch(function(e) { console.warn('initUserSettings failed:', e); });
                 document.getElementById('loginPassword').value = '';
                 updateLoadingText('登录中', '欢迎 ' + currentUser);
-
-                // v088: 获取登录 IP 与地区（带超时，不阻塞登录）
-                var ip = 'unknown';
-                var region = '';
-                try {
-                    var loc = await Promise.race([
-                        getClientIP(),
-                        new Promise(function(resolve) { setTimeout(function() { resolve({ ip: 'unknown', region: '' }); }, 3000); })
-                    ]);
-                    ip = loc.ip || 'unknown';
-                    region = loc.region || '';
-                } catch (e) { ip = 'unknown'; region = ''; }
-
-                // v040: recordLogin with timeout - don't block login if recording fails
-                try {
-                    await Promise.race([
-                        recordLogin(currentUser, ip, region),
-                        new Promise(function(resolve) { setTimeout(resolve, 5000); })
-                    ]);
-                } catch (e) { /* ignore */ }
 
                 // v040: Check if timeout occurred during post-login operations
                 if (_loginTimedOut) return;

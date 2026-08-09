@@ -12,12 +12,12 @@
     overflow: hidden;
 }
 
-/* 左侧聊天列表栏：初始占屏 20%，可拖动调整（宽度经内联样式覆盖后由 min/max 钳制） */
+/* 左侧聊天列表栏：初始占屏 30%，可拖动调整（宽度经内联样式覆盖后由 min/max 钳制） */
 .chat-sidebar {
     position: relative;
     display: flex;
     flex-direction: column;
-    width: 20%;
+    width: 30%;
     min-width: 200px;
     max-width: 38%;
     height: 100%;

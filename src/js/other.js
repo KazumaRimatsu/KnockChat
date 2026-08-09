@@ -1264,26 +1264,39 @@
                     showLogin();
                     return;
                 }
-                const verifyWithSecure = async () => {
+                const verifyWithSecure = async (ip, region) => {
                     const { data, error } = await s3.rpc('verify_session_secure', {
-                        p_uid: session.uid || 0, p_username: session.username, p_token: session.token
+                        p_uid: session.uid || 0, p_username: session.username, p_token: session.token,
+                        p_ip: ip || 'unknown', p_region: region || ''
                     });
                     if (!error && data && data.success !== false) return data;
                     return null;
                 };
-                const verifyWithLegacy = async () => {
+                const verifyWithLegacy = async (ip, region) => {
                     const { data, error } = await s3.rpc('verify_session', {
-                        p_uid: session.uid || 0, p_username: session.username, p_token: session.token
+                        p_uid: session.uid || 0, p_username: session.username, p_token: session.token,
+                        p_ip: ip || 'unknown', p_region: region || ''
                     });
                     if (!error && data && data.success !== false) return data;
                     throw error || new Error('Session verify failed');
                 };
 
                 (async () => {
+                    // v089: 会话恢复同样记录登录 IP 与地区（后端 get_client_ip 获取，带超时不阻塞会话校验）
+                    var rIp = 'unknown';
+                    var rRegion = '';
+                    try {
+                        var rLoc = await Promise.race([
+                            getClientIP(),
+                            new Promise(function(resolve) { setTimeout(function() { resolve({ ip: 'unknown', region: '' }); }, 3000); })
+                        ]);
+                        rIp = rLoc.ip || 'unknown';
+                        rRegion = rLoc.region || '';
+                    } catch (e) { rIp = 'unknown'; rRegion = ''; }
                     let userData = null;
-                    try { userData = await verifyWithSecure(); } catch (e) { /* ignore */ }
+                    try { userData = await verifyWithSecure(rIp, rRegion); } catch (e) { /* ignore */ }
                     if (!userData) {
-                        try { userData = await verifyWithLegacy(); } catch (e) {
+                        try { userData = await verifyWithLegacy(rIp, rRegion); } catch (e) {
                             localStorage.removeItem(LS_KEYS.SESSION);
                             if (timeoutId) clearTimeout(timeoutId);
                             hideGlobalLoading();
@@ -1345,6 +1358,54 @@
                 hideGlobalLoading();
                 showLogin();
             }
+        }
+
+        // v089: 检查更新——从存储桶 upd/latest.json 读取最新版本元数据并展示下载入口
+        async function checkUpdate() {
+            const box = document.getElementById('aboutUpdateInfo');
+            if (!box) return;
+            box.style.display = 'block';
+            box.innerHTML = '正在检查更新…';
+            try {
+                const { data, error } = await s3.rpc('get_update_info', {});
+                if (error || !data || data.success === false) {
+                    box.innerHTML = '检查更新失败：' + escapeHtml((error && error.message) || (data && data.message) || '服务异常');
+                    return;
+                }
+                if (!data.available) {
+                    box.innerHTML = '当前已是最新版本（内核 v' + String(KERNEL_VERSION).padStart(3, '0') + '）';
+                    return;
+                }
+                const curTag = 'v' + String(KERNEL_VERSION).padStart(3, '0');
+                const newTag = data.version_tag || ('v' + String(data.version || 0).padStart(3, '0'));
+                const sizeText = data.size ? formatBytes(data.size) : '';
+                const pubText = data.published_at ? String(data.published_at).replace('T', ' ').replace(/\..+?Z?$/, '').trim() : '';
+                const isNew = (data.version || 0) > (KERNEL_VERSION || 0);
+                const lines = [
+                    '最新版本：' + newTag + (isNew ? '' : '（与当前相同）'),
+                    '当前版本：内核 ' + curTag,
+                    '文件：' + (data.filename || '未知'),
+                    sizeText ? '大小：' + sizeText : '',
+                    pubText ? '发布时间：' + pubText : '',
+                    data.notes ? '更新说明：\n' + data.notes : ''
+                ].filter(Boolean);
+                let html = lines.map(escapeHtml).join('<br>');
+                if (data.download_url) {
+                    html += '<br><button class="md-button primary" id="updateDownloadBtn">下载安装包</button>';
+                }
+                box.innerHTML = html;
+                const dl = document.getElementById('updateDownloadBtn');
+                if (dl) dl.onclick = function() { window.open(data.download_url, '_blank', 'noopener'); };
+            } catch (e) {
+                box.innerHTML = '检查更新失败：' + escapeHtml((e && e.message) || e);
+            }
+        }
+
+        function formatBytes(n) {
+            if (!n || n <= 0) return '';
+            if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+            if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+            return n + ' B';
         }
 
         document.querySelectorAll('.dialog-overlay').forEach(el => {

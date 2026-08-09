@@ -419,7 +419,7 @@ pub async fn s3rpc_register_user(params: Value) -> Result<Value, String> {
     s3rpc_register_user_secure(params).await
 }
 
-async fn do_login(s3: &Arc<S3>, username: &str, password_hash: &str) -> Result<Value, String> {
+async fn do_login(s3: &Arc<S3>, username: &str, password_hash: &str, ip: &str, region: &str) -> Result<Value, String> {
     // v087: 仅支持 uid 登录（昵称登录已移除）——入参必须是纯数字 uid
     let input = username.trim();
     let uid = match input.parse::<u64>() {
@@ -450,7 +450,12 @@ async fn do_login(s3: &Arc<S3>, username: &str, password_hash: &str) -> Result<V
     // 会话以用户记录中的真实昵称为准（入参是数字 uid）
     let real_name = user["username"].as_str().unwrap_or(input).to_string();
     let token = create_session(s3, uid, &real_name).await?;
-    let avatar = user["avatar_url"].as_str().unwrap_or("");
+    let avatar = user["avatar_url"].as_str().unwrap_or("").to_string();
+    // v089: 登录成功即记录登录 IP 与地区（前端经 get_client_ip 获取后随登录请求传入）
+    user["last_login_at"] = json!(now_iso());
+    user["last_login_ip"] = json!(ip);
+    user["last_login_region"] = json!(region);
+    let _ = save_user(s3, uid, &user).await;
     Ok(json!({
         "success": true,
         "uid": uid,
@@ -465,7 +470,17 @@ async fn do_login(s3: &Arc<S3>, username: &str, password_hash: &str) -> Result<V
 
 pub async fn s3rpc_verify_login_secure_rate_limited(params: Value) -> Result<Value, String> {
     let s = s3()?;
-    do_login(&s, params["p_username"].as_str().unwrap_or(""), params["p_password_hash"].as_str().unwrap_or("")).await
+    // v089: 登录时一并上传 IP 与登录地区（登录成功后写入用户记录）
+    let ip = params["p_ip"].as_str().unwrap_or("");
+    let region = params["p_region"].as_str().unwrap_or("");
+    do_login(
+        &s,
+        params["p_username"].as_str().unwrap_or(""),
+        params["p_password_hash"].as_str().unwrap_or(""),
+        ip,
+        region,
+    )
+    .await
 }
 
 pub async fn s3rpc_verify_login_secure(params: Value) -> Result<Value, String> {
@@ -476,15 +491,22 @@ pub async fn s3rpc_verify_login(params: Value) -> Result<Value, String> {
     s3rpc_verify_login_secure_rate_limited(params).await
 }
 
-async fn do_verify_session(s3: &Arc<S3>, uid: u64, username: &str, token: &str) -> Result<Value, String> {
+async fn do_verify_session(s3: &Arc<S3>, uid: u64, username: &str, token: &str, ip: &str, region: &str) -> Result<Value, String> {
     let valid = verify_session(s3, uid, token).await?;
     if !valid {
         return Ok(json!({ "success": true, "valid": false }));
     }
-    let user = get_user(s3, uid).await?.unwrap_or_else(|| json!({}));
+    let mut user = get_user(s3, uid).await?.unwrap_or_else(|| json!({}));
     // v088: username 一律以用户记录为准，不回显客户端传入值——
     // 客户端本地会话里可能存着 uid 字符串（历史 bug），回显会导致 currentUser 变成 "1"
-    let name = user["username"].as_str().unwrap_or(username);
+    let name = user["username"].as_str().unwrap_or(username).to_string();
+    // v089: 会话恢复登录同样记录登录 IP 与地区（前端传 p_ip/p_region，为空则不更新）
+    if !ip.is_empty() {
+        user["last_login_at"] = json!(now_iso());
+        user["last_login_ip"] = json!(ip);
+        user["last_login_region"] = json!(region);
+        let _ = save_user(s3, uid, &user).await;
+    }
     Ok(json!({
         "success": true,
         "valid": true,
@@ -505,7 +527,10 @@ pub async fn s3rpc_verify_session_secure(params: Value) -> Result<Value, String>
     if uid == 0 {
         return Ok(json!({ "success": true, "valid": false }));
     }
-    do_verify_session(&s, uid, username, token).await
+    // v089: 会话恢复时上传登录 IP 与地区（记录到用户档案）
+    let ip = params["p_ip"].as_str().unwrap_or("");
+    let region = params["p_region"].as_str().unwrap_or("");
+    do_verify_session(&s, uid, username, token, ip, region).await
 }
 
 pub async fn s3rpc_verify_session(params: Value) -> Result<Value, String> {
@@ -594,6 +619,77 @@ pub async fn s3rpc_record_login(params: Value) -> Result<Value, String> {
         let _ = save_user(&s, uid, &user).await;
     }
     Ok(json!({ "success": true }))
+}
+
+/// 更新元数据对象：upd/latest.json（BELL 管理工具推送更新包时写入）
+const UPDATE_META_KEY: &str = "upd/latest.json";
+
+/// v089: 后端获取本机公网 IP 与登录地区（腾讯 IP 定位接口）。
+/// 由 Rust 发起请求，避免前端 WebView 对第三方域名的网络/跨域不确定性。
+async fn fetch_client_ip() -> Result<(String, String), String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .map_err(|e| format!("HTTP 客户端初始化失败: {e}"))?;
+    let resp = client
+        .get("https://r.inews.qq.com/api/ip2city")
+        .send()
+        .await
+        .map_err(|e| format!("IP 定位请求失败: {e}"))?;
+    let v: Value = resp.json().await.map_err(|e| format!("IP 定位解析失败: {e}"))?;
+    if v["ret"].as_i64().unwrap_or(-1) != 0 {
+        return Err("IP 定位接口返回异常".to_string());
+    }
+    let ip = v["ip"].as_str().unwrap_or("unknown").to_string();
+    // 国家/省/市连续重复去重：如「中国 中国 广东」→「中国 广东」
+    let mut region = String::new();
+    let mut last = "";
+    for k in ["country", "province", "city"] {
+        if let Some(p) = v[k].as_str() {
+            if !p.is_empty() && p != last {
+                if !region.is_empty() {
+                    region.push(' ');
+                }
+                region.push_str(p);
+                last = p;
+            }
+        }
+    }
+    Ok((ip, region))
+}
+
+pub async fn s3rpc_get_client_ip(_params: Value) -> Result<Value, String> {
+    match fetch_client_ip().await {
+        Ok((ip, region)) => Ok(json!({ "success": true, "ip": ip, "region": region })),
+        Err(e) => Ok(json!({ "success": true, "ip": "unknown", "region": "", "error": e })),
+    }
+}
+
+/// v089: 检查更新——读取 upd/latest.json（BELL 推送更新包时写入），
+/// 返回最新版本元数据与安装包下载地址（预签名 URL，有效期 1 小时）。
+pub async fn s3rpc_get_update_info(_params: Value) -> Result<Value, String> {
+    let s = s3()?;
+    let Some(meta) = json_get(&s, UPDATE_META_KEY).await? else {
+        return Ok(json!({ "success": true, "available": false }));
+    };
+    let filename = meta["filename"].as_str().unwrap_or("");
+    let mut out = json!({
+        "success": true,
+        "available": true,
+        "version": meta["version"].as_u64().unwrap_or(0),
+        "version_tag": meta["version_tag"].as_str().unwrap_or(""),
+        "filename": filename,
+        "size": meta["size"].as_u64().unwrap_or(0),
+        "sha256": meta["sha256"].as_str().unwrap_or(""),
+        "notes": meta["notes"].as_str().unwrap_or(""),
+        "published_at": meta["published_at"].as_str().unwrap_or("")
+    });
+    out["download_url"] = json!(if filename.is_empty() {
+        "".to_string()
+    } else {
+        s.presign_get(&format!("upd/{}", filename), 3600)
+    });
+    Ok(out)
 }
 
 // ==================== 公聊 ====================
@@ -1877,6 +1973,8 @@ pub async fn s3rpc_call(name: String, params: Value) -> Result<Value, String> {
         "change_password" => s3rpc_change_password(params).await,
         "delete_my_account" => s3rpc_delete_my_account(params).await,
         "record_login" => s3rpc_record_login(params).await,
+        "get_client_ip" => s3rpc_get_client_ip(params).await,
+        "get_update_info" => s3rpc_get_update_info(params).await,
         // ==== 公聊 ====
         "get_public_messages" => s3rpc_get_public_messages(params).await,
         "send_public_message_secure" => s3rpc_send_public_message_secure(params).await,

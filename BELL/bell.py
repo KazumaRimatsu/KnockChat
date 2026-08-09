@@ -39,6 +39,7 @@ import re
 import threading
 import time
 import tkinter as tk
+import tkinter.filedialog
 import tkinter.messagebox
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -457,6 +458,34 @@ class Store:
                 except Exception:
                     pass
 
+    # ---- 更新推送（客户端「检查更新」从 upd/latest.json 读取） ----
+
+    UPDATE_META_KEY = "upd/latest.json"
+
+    def get_update_info(self):
+        """读取 upd/latest.json 更新元数据；不存在返回 None"""
+        return self.s3.get_json(self.UPDATE_META_KEY)
+
+    def publish_update(self, version, filepath, notes=""):
+        """推送更新包：上传安装包到 upd/<文件名>，并写入 upd/latest.json 元数据。
+        返回 (安装包文件名, 元数据 dict)。"""
+        filename = os.path.basename(filepath)
+        with open(filepath, "rb") as f:
+            data = f.read()
+        sha = hashlib.sha256(data).hexdigest()
+        self.s3.put_object(f"upd/{filename}", data, "application/octet-stream")
+        meta = {
+            "version": int(version),
+            "version_tag": f"v{int(version):03d}",
+            "filename": filename,
+            "size": len(data),
+            "sha256": sha,
+            "published_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "notes": notes,
+        }
+        self.s3.put_json(self.UPDATE_META_KEY, meta)
+        return filename, meta
+
 
 # ---------------------------------------------------------------------------
 # 工具函数
@@ -571,6 +600,7 @@ class App:
         self._build_users_tab()
         self._build_messages_tab()
         self._build_media_tab()
+        self._build_update_tab()
 
         logf = ttk.Frame(self.root, padding=(8, 0, 8, 6))
         logf.pack(fill="x")
@@ -672,6 +702,95 @@ class App:
 
         self.media_count = tk.StringVar(value="")
         ttk.Label(tab, textvariable=self.media_count).pack(anchor="w", padx=8, pady=(0, 4))
+
+    def _build_update_tab(self):
+        """更新管理：查看当前推送版本、推送新安装包（客户端「检查更新」从 upd/latest.json 读取）"""
+        tab = ttk.Frame(self.nb)
+        self.nb.add(tab, text="更新管理")
+
+        # 当前推送信息
+        info = ttk.Frame(tab, padding=6)
+        info.pack(fill="x")
+        ttk.Button(info, text="刷新", command=self.refresh_update_info).pack(side="right")
+        self.update_info_var = tk.StringVar(value="尚未读取更新信息，点击「刷新」")
+        ttk.Label(info, textvariable=self.update_info_var, foreground="#666",
+                  wraplength=880, justify="left").pack(side="left", fill="x", expand=True)
+
+        # 推送表单
+        form = ttk.LabelFrame(tab, text="推送更新包", padding=8)
+        form.pack(fill="x", padx=6, pady=6)
+
+        row1 = ttk.Frame(form)
+        row1.pack(fill="x", pady=2)
+        ttk.Label(row1, text="版本号（整数）：").pack(side="left")
+        self.upd_version = tk.StringVar()
+        ttk.Entry(row1, textvariable=self.upd_version, width=10).pack(side="left", padx=4)
+        ttk.Label(row1, text="如：89（与客户端 constants.js 的 KERNEL_VERSION 对应）",
+                  foreground="#999").pack(side="left")
+
+        row2 = ttk.Frame(form)
+        row2.pack(fill="x", pady=2)
+        ttk.Label(row2, text="安装包：").pack(side="left")
+        self.upd_file = tk.StringVar()
+        ttk.Entry(row2, textvariable=self.upd_file, width=56).pack(side="left", padx=4)
+        ttk.Button(row2, text="浏览…", command=self._pick_update_file).pack(side="left")
+
+        ttk.Label(form, text="更新说明：").pack(anchor="w", pady=(4, 0))
+        self.upd_notes = tk.Text(form, height=5, width=80)
+        self.upd_notes.pack(fill="x", pady=(2, 4))
+
+        ttk.Button(form, text="推送到存储桶", command=self.on_publish_update).pack(anchor="w")
+        ttk.Label(form, text="提示：客户端在「关于」页点击「检查更新」即可看到新版本并下载安装包。",
+                  foreground="#999").pack(anchor="w", pady=(4, 0))
+
+    def _pick_update_file(self):
+        path = tkinter.filedialog.askopenfilename(
+            title="选择安装包",
+            filetypes=[("安装包", "*.exe *.msi *.zip"), ("所有文件", "*.*")])
+        if path:
+            self.upd_file.set(path)
+
+    def refresh_update_info(self):
+        self._bg(lambda: self.store.get_update_info(), self._after_update_info)
+
+    def _after_update_info(self, info):
+        if not info:
+            self.update_info_var.set("存储桶中暂无更新元数据（upd/latest.json 不存在），可直接推送新版本。")
+            return
+        ver = info.get("version", 0)
+        sha = info.get("sha256") or "-"
+        try:
+            ver = int(ver)
+        except (TypeError, ValueError):
+            ver = 0
+        self.update_info_var.set(
+            f"当前推送：v{ver:03d} | 文件：{info.get('filename') or '-'} | "
+            f"大小：{fmt_size(info.get('size') or 0)} | 发布时间：{fmt_time(info.get('published_at') or '')} | "
+            f"SHA256：{sha[:16]}…")
+
+    def on_publish_update(self):
+        ver_text = self.upd_version.get().strip()
+        path = self.upd_file.get().strip()
+        notes = self.upd_notes.get("1.0", "end").strip()
+        if not ver_text.isdigit():
+            tkinter.messagebox.showwarning("提示", "版本号必须为整数（与客户端 KERNEL_VERSION 一致）")
+            return
+        if not path or not os.path.isfile(path):
+            tkinter.messagebox.showwarning("提示", "请先选择有效的安装包文件")
+            return
+        version = int(ver_text)
+        name = os.path.basename(path)
+        if not self.confirm(f"确认将 {name} 推送为 v{version:03d} 更新包？\n"
+                            f"推送后客户端「检查更新」即可看到并下载。"):
+            return
+        self._bg(lambda: self.store.publish_update(version, path, notes),
+                 self._after_publish_update)
+
+    def _after_publish_update(self, result):
+        filename, meta = result
+        self.log(f"更新包已推送：upd/{filename}（v{meta['version']:03d}）")
+        self.update_info_var.set(f"推送成功：v{meta['version']:03d}，文件 {filename}")
+        self.refresh_update_info()
 
     # ---------------- 后台执行 ----------------
 

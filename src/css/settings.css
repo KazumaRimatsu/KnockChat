@@ -224,6 +224,33 @@
     text-decoration: underline;
 }
 
+/* v089: 检查更新——按钮与结果展示区 */
+.about-page .about-update {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+}
+
+.about-page .about-update-info {
+    max-width: min(92vw, 420px);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    color: var(--md-on-surface-variant);
+    text-align: left;
+    border: 1px solid var(--md-outline);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: none;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.about-page .about-update-info .md-button {
+    margin-top: 8px;
+}
+
 .about-page .about-copyright {
     margin-top: 24px;
     font-size: 0.75rem;
