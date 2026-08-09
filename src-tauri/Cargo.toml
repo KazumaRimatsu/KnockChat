@@ -34,4 +34,6 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 rand = "0.8"
 regex = "1"
+# ==== 智能体 API Key 加密（AES-256-GCM，杜绝明文落盘） ====
+aes-gcm = "0.10"
 

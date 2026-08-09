@@ -3,8 +3,12 @@
 //! 返回 `serde_json::Value`（与旧 Supabase RPC 的结构保持一致，前端改动最小）。
 
 use crate::s3::{ObjectMeta, S3, S3Config};
+use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Nonce};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::{Duration, SecondsFormat, Utc};
+use hmac::{Hmac, Mac};
 use serde_json::{json, Value};
+use sha2::Sha256;
 use std::sync::{Arc, Mutex, OnceLock};
 
 static CFG: OnceLock<Mutex<Option<Arc<S3>>>> = OnceLock::new();
@@ -57,9 +61,39 @@ fn user_key(uid: u64) -> String {
     format!("users/{}.json", uid)
 }
 
-/// 用户名 → uid 反向索引：users/by_name/<enc(username)>.json 存 {"uid": N}
+/// 统一用户索引：users/_index.json 存 { username: uid }
+/// 取代早期 users/by_name/<enc>.json 逐文件反向索引（减少对象数量、免全桶扫描）。
+const USER_INDEX_KEY: &str = "users/_index.json";
+
+/// 用户名 → uid 反向索引（旧版路径，仅用于兼容迁移与清理）
 fn user_name_index(username: &str) -> String {
     format!("users/by_name/{}.json", enc(username))
+}
+
+/// 读取统一用户索引（username → uid 映射）
+async fn user_index_map(s3: &Arc<S3>) -> Result<Value, String> {
+    Ok(json_get(s3, USER_INDEX_KEY).await?.unwrap_or_else(|| json!({})))
+}
+
+/// 统一索引写入（读-改-写）
+async fn user_index_put(s3: &Arc<S3>, username: &str, uid: u64) -> Result<(), String> {
+    let mut map = user_index_map(s3).await?;
+    if let Some(obj) = map.as_object_mut() {
+        obj.insert(username.to_string(), json!(uid));
+    } else {
+        map = json!({ username: uid });
+    }
+    json_put(s3, USER_INDEX_KEY, &map).await
+}
+
+/// 统一索引删除条目
+async fn user_index_remove(s3: &Arc<S3>, username: &str) -> Result<(), String> {
+    let mut map = user_index_map(s3).await?;
+    if let Some(obj) = map.as_object_mut() {
+        obj.remove(username);
+        json_put(s3, USER_INDEX_KEY, &map).await?;
+    }
+    Ok(())
 }
 
 /// uid 计数器：users/_meta.json 存 {"next_uid": N}
@@ -214,12 +248,20 @@ async fn save_user(s3: &Arc<S3>, uid: u64, v: &Value) -> Result<(), String> {
     json_put(s3, &user_key(uid), v).await
 }
 
-/// 通过用户名查 uid（反向索引）
+/// 通过用户名查 uid（优先统一索引；旧 by_name 索引命中后迁移并清理）
 async fn uid_by_name(s3: &Arc<S3>, username: &str) -> Result<Option<u64>, String> {
-    let Some(v) = json_get(s3, &user_name_index(username)).await? else {
-        return Ok(None);
-    };
-    Ok(v["uid"].as_u64())
+    if let Some(uid) = user_index_map(s3).await?.get(username).and_then(|v| v.as_u64()) {
+        return Ok(Some(uid));
+    }
+    // 兼容旧数据：users/by_name/<enc>.json 兜底，命中后迁入统一索引并删除旧键
+    if let Some(v) = json_get(s3, &user_name_index(username)).await? {
+        if let Some(uid) = v["uid"].as_u64() {
+            let _ = user_index_put(s3, username, uid).await;
+            let _ = s3.delete_object(&user_name_index(username)).await;
+            return Ok(Some(uid));
+        }
+    }
+    Ok(None)
 }
 
 async fn get_user_by_name(s3: &Arc<S3>, username: &str) -> Result<Option<Value>, String> {
@@ -290,7 +332,7 @@ async fn do_register(s3: &Arc<S3>, username: &str, password_hash: &str) -> Resul
     }
     let uid = next_uid(s3).await?;
     save_user(s3, uid, &default_user(username, password_hash, uid)).await?;
-    json_put(s3, &user_name_index(username), &json!({ "uid": uid })).await?;
+    user_index_put(s3, username, uid).await?;
     let token = create_session(s3, uid, username).await?;
     Ok(json!({ "success": true, "uid": uid, "username": username, "session_token": token }))
 }
@@ -417,10 +459,11 @@ pub async fn s3rpc_delete_my_account(params: Value) -> Result<Value, String> {
         return Ok(json!({ "success": false, "message": "密码错误" }));
     }
     let username = user["username"].as_str().unwrap_or("");
-    // 删除用户资料与用户名索引
+    // 删除用户资料与统一索引（及旧版 by_name 索引）
     s.delete_object(&user_key(uid)).await?;
     if !username.is_empty() {
-        let _ = s.delete_object(&user_name_index(username)).await;
+        let _ = user_index_remove(&s, &username).await;
+        let _ = s.delete_object(&user_name_index(&username)).await;
     }
     // 删除该用户的会话
     let sess_keys = s.list_objects("sessions/").await?;
@@ -817,7 +860,7 @@ pub async fn s3rpc_upsert_user_profile(params: Value) -> Result<Value, String> {
 const MAX_USERNAME_RENAMES_PER_DAY: u64 = 5;
 
 /// 修改昵称（用户名）——用户文件 renames 字段记录 {date, count} 实现每日限次；
-/// 主键为 users/<uid>.json，私聊会话 id 基于 uid，改名只需重建 users/by_name/ 反向索引。
+/// 主键为 users/<uid>.json，私聊会话 id 基于 uid，改名只需重建统一用户索引。
 pub async fn s3rpc_update_username(params: Value) -> Result<Value, String> {
     let s = s3()?;
     let uid = params["p_uid"].as_u64().unwrap_or(0);
@@ -852,14 +895,15 @@ pub async fn s3rpc_update_username(params: Value) -> Result<Value, String> {
     if rename_count >= MAX_USERNAME_RENAMES_PER_DAY {
         return Ok(json!({ "success": false, "message": "今日昵称修改次数已达上限（每天 5 次）" }));
     }
-    // 执行改名：更新用户文件 + 重建反向索引
+    // 执行改名：更新用户文件 + 重建统一索引（并清理旧版 by_name 索引）
     user["username"] = json!(new_name);
     user["renames"] = json!({ "date": today, "count": rename_count + 1 });
     save_user(&s, uid, &user).await?;
     if !old_name.is_empty() {
+        let _ = user_index_remove(&s, &old_name).await;
         let _ = s.delete_object(&user_name_index(&old_name)).await;
     }
-    json_put(&s, &user_name_index(&new_name), &json!({ "uid": uid })).await?;
+    user_index_put(&s, &new_name, uid).await?;
     Ok(json!({
         "success": true,
         "username": new_name,
@@ -926,26 +970,26 @@ pub async fn s3rpc_search_users(params: Value) -> Result<Value, String> {
     if query.is_empty() {
         return Ok(Value::Array(vec![]));
     }
-    let metas = s.list_objects("users/").await?;
-    let keys: Vec<String> = metas
-        .into_iter()
-        .filter(|m| {
-            // 只取 users/<uid>.json（排除 by_name/ 索引与 _meta 计数器）
-            m.key.starts_with("users/") && m.key.ends_with(".json") && !m.key.starts_with("users/by_name/")
-        })
-        .take(500)
-        .map(|m| m.key)
-        .collect();
+    // 基于统一索引匹配用户名（免全桶扫描）：先匹配名字，再按 uid 取用户对象
+    let mut matched_uids: Vec<u64> = Vec::new();
+    if let Some(obj) = user_index_map(&s).await?.as_object() {
+        for (name, v) in obj {
+            if name.to_lowercase().contains(&query)
+                || enc(name).to_lowercase().contains(&query)
+                || enc(name).to_lowercase().contains(&query.replace(" ", ""))
+            {
+                if let Some(uid) = v.as_u64() {
+                    matched_uids.push(uid);
+                }
+            }
+        }
+    }
+    matched_uids.sort();
+    matched_uids.truncate(limit);
+    let keys: Vec<String> = matched_uids.iter().map(|uid| user_key(*uid)).collect();
     let users = fetch_json_all(&s, &keys).await;
     let mut matched: Vec<Value> = users
         .into_iter()
-        .filter(|v| {
-            let name = v["username"].as_str().unwrap_or("");
-            name.to_lowercase().contains(&query) || {
-                // 也匹配编码后的用户名（中文等）
-                enc(name).to_lowercase().contains(&query) || enc(name).to_lowercase().contains(&query.replace(" ", ""))
-            }
-        })
         .map(|v| {
             json!({
                 "uid": v["uid"].as_u64().unwrap_or(0),
@@ -953,10 +997,95 @@ pub async fn s3rpc_search_users(params: Value) -> Result<Value, String> {
                 "avatar_url": v["avatar_url"].as_str().unwrap_or("")
             })
         })
-        .take(limit)
         .collect();
     matched.sort_by(|a, b| a["username"].as_str().unwrap_or("").cmp(b["username"].as_str().unwrap_or("")));
     Ok(Value::Array(matched))
+}
+
+/// @提及候选：普通用户（非封禁）+ 智能体（启用中），供输入框 @ 快速选择。
+/// 基于统一索引匹配用户名，无需登录态。
+pub async fn s3rpc_mention_candidates(params: Value) -> Result<Value, String> {
+    let s = s3()?;
+    let query = params["p_query"].as_str().unwrap_or("").trim().to_lowercase();
+    let limit = params["p_limit"].as_u64().unwrap_or(30).min(50) as usize;
+    let mut out: Vec<Value> = Vec::new();
+
+    // 普通用户：统一索引匹配
+    if let Some(obj) = user_index_map(&s).await?.as_object() {
+        let mut matched: Vec<(u64, String)> = Vec::new();
+        for (name, v) in obj {
+            if query.is_empty()
+                || name.to_lowercase().contains(&query)
+                || enc(name).to_lowercase().contains(&query)
+            {
+                if let Some(uid) = v.as_u64() {
+                    matched.push((uid, name.clone()));
+                }
+            }
+        }
+        matched.sort_by(|a, b| a.1.cmp(&b.1));
+        let keys: Vec<String> = matched.iter().take(limit).map(|(uid, _)| user_key(*uid)).collect();
+        let users = fetch_json_all(&s, &keys).await;
+        for v in users {
+            if v["banned"].as_bool().unwrap_or(false) {
+                continue;
+            }
+            out.push(json!({
+                "uid": v["uid"].as_u64().unwrap_or(0),
+                "username": v["username"].as_str().unwrap_or(""),
+                "role": v["role"].as_str().unwrap_or("user"),
+                "avatar_url": v["avatar_url"].as_str().unwrap_or("")
+            }));
+        }
+    }
+
+    // 智能体：agents/<id>.json 名称匹配（归入"智能体"用户组，随用户一起展示）
+    // 注意：智能体账号同时存在于统一索引（users/<uid>.json 角色为 agent），
+    // 必须以 uid（及用户名兜底）去重，否则同一智能体在列表中会出现两次。
+    let mut agent_entries: Vec<Value> = Vec::new();
+    let mut agent_uids: Vec<u64> = Vec::new();
+    let mut agent_names: Vec<String> = Vec::new();
+    let metas = s.list_objects("agents/").await?;
+    let keys: Vec<String> = metas
+        .into_iter()
+        .filter(|m| {
+            m.key.starts_with("agents/") && m.key.ends_with(".json") && !m.key.starts_with("agents/by_name/")
+        })
+        .map(|m| m.key)
+        .collect();
+    let agents = fetch_json_all(&s, &keys).await;
+    for a in agents {
+        if a["enabled"].as_bool().unwrap_or(true) == false {
+            continue;
+        }
+        let name = a["name"].as_str().unwrap_or("");
+        if name.is_empty() {
+            continue;
+        }
+        if !query.is_empty() && !name.to_lowercase().contains(&query) && !enc(name).to_lowercase().contains(&query)
+        {
+            continue;
+        }
+        let uid = a["uid"].as_u64().unwrap_or(0);
+        agent_uids.push(uid);
+        agent_names.push(name.to_string());
+        agent_entries.push(json!({
+            "uid": uid,
+            "username": name,
+            "role": "agent",
+            "avatar_url": ""
+        }));
+    }
+    // 剔除用户列表中的智能体账号（智能体由 agents/ 配置统一展示）
+    out.retain(|v| {
+        let uid = v["uid"].as_u64().unwrap_or(0);
+        let name = v["username"].as_str().unwrap_or("");
+        !agent_uids.contains(&uid) && !agent_names.iter().any(|n| n == name)
+    });
+    out.extend(agent_entries);
+    out.sort_by(|a, b| a["username"].as_str().unwrap_or("").cmp(b["username"].as_str().unwrap_or("")));
+    out.truncate(limit);
+    Ok(Value::Array(out))
 }
 
 pub async fn s3rpc_toggle_block_user(params: Value) -> Result<Value, String> {
@@ -1103,8 +1232,19 @@ pub async fn s3rpc_get_media_url(params: Value) -> Result<Value, String> {
 
 pub async fn s3rpc_list_media(params: Value) -> Result<Value, String> {
     let s = s3()?;
-    let prefix = params["p_prefix"].as_str().unwrap_or("media/");
-    let metas: Vec<ObjectMeta> = s.list_objects(prefix).await?;
+    // 安全加固：群文件仅允许枚举公聊上传的媒体（media/chat/ 与 media/public/）。
+    // 无论客户端传入何种前缀，都不会返回 media/private/（私聊媒体）、media/avatars/（头像）、
+    // media/background/（背景），更不会暴露桶内 users/、sessions/、config/ 等配置与私密对象。
+    let prefix = match params["p_prefix"].as_str() {
+        Some(p) if p.starts_with("media/chat/") || p.starts_with("media/public/") => p.to_string(),
+        _ => "media/".to_string(),
+    };
+    let metas: Vec<ObjectMeta> = s
+        .list_objects(&prefix)
+        .await?
+        .into_iter()
+        .filter(|m| m.key.starts_with("media/chat/") || m.key.starts_with("media/public/"))
+        .collect();
     let list: Vec<Value> = metas
         .into_iter()
         .map(|m| {
@@ -1124,31 +1264,462 @@ pub async fn s3rpc_list_media(params: Value) -> Result<Value, String> {
     Ok(Value::Array(list))
 }
 
-// ==================== 智能体（暂未迁移，返回空/禁用） ====================
+// ==================== 智能体 ====================
+//
+// 存储结构：
+//   agents/<id>.json            智能体配置（id 为十六进制毫秒时间戳+随机数）
+//   agents/by_name/<name>.json  智能体名 → id 反向索引
+//   每个智能体对应一个 users/<uid>.json 用户账号（role: "agent"，归入"智能体"用户组），
+//   公聊消息以该账号身份发出（sender_uid = 账号 uid）。
+//
+// API Key 安全：前端经本机 Tauri IPC 传明文 → 后端用 AES-256-GCM 加密落盘（杜绝明文存储），
+// 密钥由 S3 凭证派生（HMAC-SHA256(S3Config.secret_key, "cikachat-agent-apikey")），
+// 仅调用 LLM 时在内存中解密，API Key 永不进入前端、永不出现于 S3 对象明文。
 
-pub async fn s3rpc_get_agents(params: Value) -> Result<Value, String> {
-    let _ = params;
-    Ok(Value::Array(vec![]))
+fn agent_key(id: &str) -> String {
+    format!("agents/{}.json", id)
+}
+
+fn agent_name_index(name: &str) -> String {
+    format!("agents/by_name/{}.json", enc(name))
+}
+
+/// 从 S3 凭证派生 AES-256 密钥（HMAC-SHA256 固定上下文，32 字节）
+fn agent_aes_key(s: &Arc<S3>) -> [u8; 32] {
+    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(s.cfg.secret_key.as_bytes()).expect("hmac key");
+    mac.update(b"cikachat-agent-apikey");
+    let out = mac.finalize().into_bytes();
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&out);
+    key
+}
+
+/// 加密 API Key：返回 base64(nonce(12B) || AES-256-GCM 密文)
+async fn encrypt_api_key(s: &Arc<S3>, plain: &str) -> Result<String, String> {
+    let cipher = Aes256Gcm::new_from_slice(&agent_aes_key(s)).map_err(|e| format!("AES 初始化失败: {e}"))?;
+    let nonce_bytes: [u8; 12] = rand::random();
+    let ct = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plain.as_bytes())
+        .map_err(|e| format!("API Key 加密失败: {e}"))?;
+    let mut out = nonce_bytes.to_vec();
+    out.extend_from_slice(&ct);
+    Ok(BASE64.encode(out))
+}
+
+/// 解密 API Key：输入为 encrypt_api_key 的输出
+fn decrypt_api_key(s: &Arc<S3>, encoded: &str) -> Result<String, String> {
+    let raw = BASE64.decode(encoded.trim()).map_err(|e| format!("密文解码失败: {e}"))?;
+    if raw.len() < 13 {
+        return Err("API Key 密文损坏".to_string());
+    }
+    let cipher = Aes256Gcm::new_from_slice(&agent_aes_key(s)).map_err(|e| format!("AES 初始化失败: {e}"))?;
+    let pt = cipher
+        .decrypt(Nonce::from_slice(&raw[..12]), &raw[12..])
+        .map_err(|_| "API Key 解密失败".to_string())?;
+    String::from_utf8(pt).map_err(|_| "API Key 解密失败".to_string())
+}
+
+/// 智能体名 → id
+async fn agent_id_by_name(s3: &Arc<S3>, name: &str) -> Result<Option<String>, String> {
+    match json_get(s3, &agent_name_index(name)).await? {
+        Some(v) => Ok(v["agent_id"].as_str().map(|x| x.to_string())),
+        None => Ok(None),
+    }
+}
+
+/// 确保智能体拥有一个 role: "agent" 的用户账号（归入"智能体"用户组）。
+/// 账号已存在且角色为 agent 则复用；名称被普通用户占用则返回错误。
+/// 智能体账号密码为随机不可知串（无法登录，仅用于发消息）。
+async fn ensure_agent_user(s3: &Arc<S3>, name: &str) -> Result<u64, String> {
+    if let Some(uid) = uid_by_name(s3, name).await? {
+        let user = get_user(s3, uid).await?.unwrap_or_else(|| json!({}));
+        if user["role"].as_str().unwrap_or("user") == "agent" {
+            return Ok(uid);
+        }
+        return Err("该昵称已被用户使用".to_string());
+    }
+    let uid = next_uid(s3).await?;
+    let random_hash = format!("agent:{}:{}", uid, new_id());
+    let mut user = default_user(name, &random_hash, uid);
+    user["role"] = json!("agent");
+    save_user(s3, uid, &user).await?;
+    user_index_put(s3, name, uid).await?;
+    Ok(uid)
+}
+
+pub async fn s3rpc_get_agents(_params: Value) -> Result<Value, String> {
+    let s = s3()?;
+    let metas = s.list_objects("agents/").await?;
+    let keys: Vec<String> = metas
+        .into_iter()
+        .filter(|m| {
+            // 只取 agents/<id>.json（排除 by_name/ 索引）
+            m.key.starts_with("agents/") && m.key.ends_with(".json") && !m.key.starts_with("agents/by_name/")
+        })
+        .map(|m| m.key)
+        .collect();
+    let mut agents = fetch_json_all(&s, &keys).await;
+    sort_desc_by_created(&mut agents);
+    // 注意：绝不返回 api_key_enc，API Key 只以密文落盘
+    let out: Vec<Value> = agents
+        .into_iter()
+        .map(|a| {
+            json!({
+                "id": a["id"].as_str().unwrap_or(""),
+                "name": a["name"].as_str().unwrap_or(""),
+                "provider": a["provider"].as_str().unwrap_or("custom"),
+                "model": a["model"].as_str().unwrap_or(""),
+                "created_by": a["created_by"].as_str().unwrap_or(""),
+                "enabled": a["enabled"].as_bool().unwrap_or(true),
+                "created_at": a["created_at"].as_str().unwrap_or(""),
+                "updated_at": a["updated_at"].as_str().unwrap_or("")
+            })
+        })
+        .collect();
+    Ok(Value::Array(out))
 }
 
 pub async fn s3rpc_save_agent(params: Value) -> Result<Value, String> {
-    let _ = params;
-    Ok(json!({ "success": false, "message": "智能体功能暂未开放" }))
+    let s = s3()?;
+    let name = params["p_name"].as_str().unwrap_or("").trim().to_string();
+    let provider = params["p_provider"].as_str().unwrap_or("custom").trim().to_string();
+    let api_key = params["p_api_key"].as_str().unwrap_or("").trim().to_string();
+    let model = params["p_model"].as_str().unwrap_or("").trim().to_string();
+    let creator = params["p_created_by"].as_str().unwrap_or("").trim().to_string();
+
+    if name.is_empty() || !valid_username(&name) {
+        return Ok(json!({ "success": false, "message": "智能体名称不合法（2-15 个字符）" }));
+    }
+    if api_key.is_empty() {
+        return Ok(json!({ "success": false, "message": "请输入 API Key" }));
+    }
+    if model.is_empty() {
+        return Ok(json!({ "success": false, "message": "请输入模型名称" }));
+    }
+    let Some(creator_user) = get_user_by_name(&s, &creator).await? else {
+        return Ok(json!({ "success": false, "message": "请重新登录" }));
+    };
+    if creator_user["banned"].as_bool().unwrap_or(false) {
+        return Ok(json!({ "success": false, "message": "账户已被封禁" }));
+    }
+    let creator_uid = creator_user["uid"].as_u64().unwrap_or(0);
+    if creator_uid == 0 {
+        return Ok(json!({ "success": false, "message": "请重新登录" }));
+    }
+    // 写操作必须校验会话，防止伪造 p_created_by 冒名创建/修改
+    let token = params["p_session_token"].as_str().unwrap_or("");
+    if !verify_session(&s, creator_uid, token).await? {
+        return Ok(json!({ "success": false, "message": "请重新登录" }));
+    }
+
+    let api_key_enc = encrypt_api_key(&s, &api_key).await?;
+    let now = now_iso();
+
+    // 已存在同名智能体 → 更新配置（保留 id/uid/创建者；仅创建者本人可修改）
+    if let Some(existing_id) = agent_id_by_name(&s, &name).await? {
+        let key = agent_key(&existing_id);
+        let Some(mut agent) = json_get(&s, &key).await? else {
+            // 名称索引存在但配置对象丢失：按新智能体重建
+            let uid = match ensure_agent_user(&s, &name).await {
+                Ok(u) => u,
+                Err(e) => return Ok(json!({ "success": false, "message": e })),
+            };
+            let agent = json!({
+                "id": existing_id, "name": name, "provider": provider, "model": model,
+                "api_key_enc": api_key_enc, "created_by": creator, "created_by_uid": creator_uid,
+                "uid": uid, "enabled": true, "created_at": now, "updated_at": now
+            });
+            json_put(&s, &key, &agent).await?;
+            return Ok(json!({ "success": true, "id": existing_id }));
+        };
+        if agent["created_by"].as_str().unwrap_or("") != creator {
+            return Ok(json!({ "success": false, "message": "只有创建者可以修改该智能体" }));
+        }
+        agent["provider"] = json!(provider);
+        agent["model"] = json!(model);
+        agent["api_key_enc"] = json!(api_key_enc);
+        agent["enabled"] = json!(true);
+        agent["updated_at"] = json!(now);
+        json_put(&s, &key, &agent).await?;
+        return Ok(json!({ "success": true, "id": existing_id }));
+    }
+
+    // 新建：先建智能体用户账号，再写配置
+    let uid = match ensure_agent_user(&s, &name).await {
+        Ok(u) => u,
+        Err(e) => return Ok(json!({ "success": false, "message": e })),
+    };
+    let id = new_id();
+    let agent = json!({
+        "id": id, "name": name, "provider": provider, "model": model,
+        "api_key_enc": api_key_enc, "created_by": creator, "created_by_uid": creator_uid,
+        "uid": uid, "enabled": true, "created_at": now, "updated_at": now
+    });
+    json_put(&s, &agent_key(&id), &agent).await?;
+    json_put(&s, &agent_name_index(&name), &json!({ "agent_id": id })).await?;
+    Ok(json!({ "success": true, "id": id }))
 }
 
 pub async fn s3rpc_delete_agent_rpc(params: Value) -> Result<Value, String> {
-    let _ = params;
-    Ok(json!({ "success": false, "message": "智能体功能暂未开放" }))
+    let s = s3()?;
+    let agent_id = params["p_agent_id"].as_str().unwrap_or("");
+    let username = params["p_username"].as_str().unwrap_or("");
+    let token = params["p_session_token"].as_str().unwrap_or("");
+    if agent_id.is_empty() || username.is_empty() {
+        return Ok(json!({ "success": false, "message": "参数不完整" }));
+    }
+    // 写操作必须校验会话
+    let caller_uid = match uid_by_name(&s, username).await? {
+        Some(u) => u,
+        None => 0,
+    };
+    if caller_uid == 0 || !verify_session(&s, caller_uid, token).await? {
+        return Ok(json!({ "success": false, "message": "请重新登录" }));
+    }
+    let key = agent_key(agent_id);
+    let Some(agent) = json_get(&s, &key).await? else {
+        return Ok(json!({ "success": false, "message": "智能体不存在" }));
+    };
+    if agent["created_by"].as_str().unwrap_or("") != username {
+        return Ok(json!({ "success": false, "message": "只有创建者可以删除该智能体" }));
+    }
+    let name = agent["name"].as_str().unwrap_or("");
+    // 删除配置与名称索引
+    let _ = s.delete_object(&key).await;
+    if !name.is_empty() {
+        let _ = s.delete_object(&agent_name_index(name)).await;
+        // 删除智能体用户账号（role=agent 且 uid 匹配，避免误删普通用户）
+        if let Some(uid) = agent["uid"].as_u64() {
+            if let Some(user) = get_user(&s, uid).await? {
+                if user["role"].as_str().unwrap_or("user") == "agent" {
+                    let _ = s.delete_object(&user_key(uid)).await;
+                    let _ = user_index_remove(&s, name).await;
+                    let _ = s.delete_object(&user_name_index(name)).await;
+                }
+            }
+        }
+    }
+    Ok(json!({ "success": true, "message": "已删除" }))
+}
+
+/// 调用者鉴权：p_caller 用户名解析 uid + 会话校验
+async fn verify_caller_session(s: &Arc<S3>, params: &Value) -> Result<u64, Value> {
+    let caller = params["p_caller"].as_str().unwrap_or("");
+    let token = params["p_session_token"].as_str().unwrap_or("");
+    let caller_uid = if caller.is_empty() {
+        0
+    } else {
+        match uid_by_name(s, caller).await {
+            Ok(Some(u)) => u,
+            _ => 0,
+        }
+    };
+    if caller_uid == 0 || !verify_session(s, caller_uid, token).await.unwrap_or(false) {
+        return Err(json!({ "success": false, "message": "请重新登录" }));
+    }
+    Ok(caller_uid)
 }
 
 pub async fn s3rpc_call_agent_llm_rate_limited(params: Value) -> Result<Value, String> {
-    let _ = params;
-    Ok(json!({ "success": false, "message": "智能体功能暂未开放" }))
+    let s = s3()?;
+    if let Err(v) = verify_caller_session(&s, &params).await {
+        return Ok(v);
+    }
+    let agent_id = params["p_agent_id"].as_str().unwrap_or("");
+    let user_message = params["p_user_message"].as_str().unwrap_or("");
+    if user_message.is_empty() {
+        return Ok(json!({ "success": false, "message": "消息内容为空" }));
+    }
+    let Some(agent) = json_get(&s, &agent_key(agent_id)).await? else {
+        return Ok(json!({ "success": false, "message": "智能体不存在" }));
+    };
+    if !agent["enabled"].as_bool().unwrap_or(true) {
+        return Ok(json!({ "success": false, "message": "智能体已停用" }));
+    }
+    let api_key = match agent["api_key_enc"].as_str() {
+        Some(enc) => match decrypt_api_key(&s, enc) {
+            Ok(k) => k,
+            Err(e) => return Ok(json!({ "success": false, "message": e })),
+        },
+        None => return Ok(json!({ "success": false, "message": "智能体缺少 API Key 配置" })),
+    };
+    let provider = agent["provider"].as_str().unwrap_or("custom").to_string();
+    let model = agent["model"].as_str().unwrap_or("").to_string();
+    let response = call_llm(&provider, &model, &api_key, user_message).await?;
+    Ok(json!({ "success": true, "response": response }))
 }
 
 pub async fn s3rpc_send_agent_message(params: Value) -> Result<Value, String> {
-    let _ = params;
-    Ok(json!({ "success": false, "message": "智能体功能暂未开放" }))
+    let s = s3()?;
+    if let Err(v) = verify_caller_session(&s, &params).await {
+        return Ok(v);
+    }
+    let agent_name = params["p_agent_name"].as_str().unwrap_or("");
+    let content = params["p_content"].as_str().unwrap_or("");
+    if agent_name.is_empty() || content.is_empty() {
+        return Ok(json!({ "success": false, "message": "参数不完整" }));
+    }
+    let Some(agent_id) = agent_id_by_name(&s, agent_name).await? else {
+        return Ok(json!({ "success": false, "message": "智能体不存在" }));
+    };
+    let agent = json_get(&s, &agent_key(&agent_id)).await?.unwrap_or_else(|| json!({}));
+    let agent_uid = agent["uid"].as_u64().unwrap_or(0);
+    let msg = json!({
+        "id": new_id(),
+        "sender": agent_name,
+        "sender_uid": agent_uid,
+        "text": content,
+        "image_url": "",
+        "audio_url": "",
+        "audio_dur": 0.0,
+        "reply_to_id": params["p_reply_to_id"].as_str().unwrap_or(""),
+        "reply_content": params["p_reply_content"].as_str().unwrap_or(""),
+        "is_system": false,
+        "sender_deleted": false,
+        "created_at": now_iso()
+    });
+    json_put(&s, &pub_msg_key(msg["id"].as_str().unwrap()), &msg).await?;
+    Ok(json!({ "success": true, "message": "ok" }))
+}
+
+/// 各服务商 OpenAI 兼容 API base URL（Google/Anthropic 使用各自原生协议）
+fn provider_base_url(provider: &str) -> &'static str {
+    match provider {
+        "openai" => "https://api.openai.com/v1",
+        "deepseek" => "https://api.deepseek.com/v1",
+        "baidu" => "https://qianfan.baidubce.com/v2",
+        "ali" => "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "bytedance" => "https://ark.cn-beijing.volces.com/api/v3",
+        "zhipu" => "https://open.bigmodel.cn/api/paas/v4",
+        "google" => "https://generativelanguage.googleapis.com/v1beta",
+        "anthropic" => "https://api.anthropic.com/v1",
+        _ => "https://api.openai.com/v1",
+    }
+}
+
+/// 从 LLM 错误响应中提取可读信息
+fn llm_error_text(body: &str, status: u16) -> String {
+    if let Ok(v) = serde_json::from_str::<Value>(body) {
+        if let Some(msg) = v["error"]["message"].as_str() {
+            return format!("HTTP {status}: {msg}");
+        }
+        if let Some(msg) = v["message"].as_str() {
+            return format!("HTTP {status}: {msg}");
+        }
+    }
+    let snippet: String = body.chars().take(200).collect();
+    format!("HTTP {status}: {snippet}")
+}
+
+/// 调用 LLM（服务端发起，API Key 只在内存中使用）
+async fn call_llm(provider: &str, model: &str, api_key: &str, user_message: &str) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(90))
+        .build()
+        .map_err(|e| format!("HTTP 客户端初始化失败: {e}"))?;
+    let system_prompt = "你是一个聊天机器人（KnockChat 智能体）。请用简体中文简洁友好地回答用户的问题。";
+
+    match provider {
+        "google" => {
+            let url = format!(
+                "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+                model
+            );
+            let body = json!({
+                "contents": [{ "parts": [{ "text": user_message }] }],
+                "systemInstruction": { "parts": [{ "text": system_prompt }] },
+                "generationConfig": { "maxOutputTokens": 2048 }
+            });
+            let resp = client
+                .post(&url)
+                .query(&[("key", api_key)])
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("请求 Google 失败: {e}"))?;
+            let status = resp.status().as_u16();
+            let text = resp.text().await.map_err(|e| format!("读取响应失败: {e}"))?;
+            if !(200..300).contains(&status) {
+                return Err(llm_error_text(&text, status));
+            }
+            let v: Value = serde_json::from_str(&text).map_err(|_| "解析 Google 响应失败".to_string())?;
+            v["candidates"][0]["content"]["parts"][0]["text"]
+                .as_str()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "Google 返回为空".to_string())
+        }
+        "anthropic" => {
+            let url = "https://api.anthropic.com/v1/messages";
+            let body = json!({
+                "model": model,
+                "max_tokens": 2048,
+                "system": system_prompt,
+                "messages": [{ "role": "user", "content": user_message }]
+            });
+            let resp = client
+                .post(url)
+                .header("x-api-key", api_key)
+                .header("anthropic-version", "2023-06-01")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("请求 Anthropic 失败: {e}"))?;
+            let status = resp.status().as_u16();
+            let text = resp.text().await.map_err(|e| format!("读取响应失败: {e}"))?;
+            if !(200..300).contains(&status) {
+                return Err(llm_error_text(&text, status));
+            }
+            let v: Value = serde_json::from_str(&text).map_err(|_| "解析 Anthropic 响应失败".to_string())?;
+            let mut out = String::new();
+            if let Some(blocks) = v["content"].as_array() {
+                for b in blocks {
+                    if b["type"].as_str() == Some("text") {
+                        if let Some(t) = b["text"].as_str() {
+                            out.push_str(t);
+                        }
+                    }
+                }
+            }
+            let out = out.trim().to_string();
+            if out.is_empty() {
+                Err("Anthropic 返回为空".to_string())
+            } else {
+                Ok(out)
+            }
+        }
+        _ => {
+            // OpenAI 兼容（openai/deepseek/baidu/ali/bytedance/zhipu/custom）
+            let url = format!("{}/chat/completions", provider_base_url(provider).trim_end_matches('/'));
+            let body = json!({
+                "model": model,
+                "messages": [
+                    { "role": "system", "content": system_prompt },
+                    { "role": "user", "content": user_message }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 2048
+            });
+            let resp = client
+                .post(&url)
+                .header("Authorization", format!("Bearer {}", api_key))
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| format!("请求 LLM 失败: {e}"))?;
+            let status = resp.status().as_u16();
+            let text = resp.text().await.map_err(|e| format!("读取响应失败: {e}"))?;
+            if !(200..300).contains(&status) {
+                return Err(llm_error_text(&text, status));
+            }
+            let v: Value = serde_json::from_str(&text).map_err(|_| "解析 LLM 响应失败".to_string())?;
+            v["choices"][0]["message"]["content"]
+                .as_str()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| "LLM 返回为空".to_string())
+        }
+    }
 }
 
 // ==================== 云控（暂未迁移，返回默认配置） ====================
@@ -1212,6 +1783,7 @@ pub async fn s3rpc_call(name: String, params: Value) -> Result<Value, String> {
         "get_user_settings" => s3rpc_get_user_settings(params).await,
         "update_user_settings" => s3rpc_update_user_settings(params).await,
         "search_users" => s3rpc_search_users(params).await,
+        "mention_candidates" => s3rpc_mention_candidates(params).await,
         "toggle_block_user" => s3rpc_toggle_block_user(params).await,
         "get_blocked_users" => s3rpc_get_blocked_users(params).await,
         "check_blocked" => s3rpc_check_blocked(params).await,

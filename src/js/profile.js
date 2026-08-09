@@ -84,8 +84,9 @@
             const load = function(finalUrl) {
                 const img = new Image();
                 img.onload = function() {
-                    // v073：缓存 objectURL 用后即释放
-                    if (typeof revokeImageObjectUrl === 'function') revokeImageObjectUrl(finalUrl);
+                    // v073 回归修复：finalUrl 若是缓存 objectURL，此处不能提前 revoke——
+                    // onOk 会把该 URL 赋给元素 backgroundImage，CSS 背景在赋值后才解码，
+                    // 提前 revoke 会导致头像/背景图无法显示。仅错误路径释放。
                     if (onOk) onOk(finalUrl);
                 };
                 img.onerror = function() {
@@ -270,7 +271,7 @@
                     label: '生日',
                     isEmpty: !birthday
                 });
-                const roleText = profileData.role === 'admin' ? '管理员' : '普通用户';
+                const roleText = profileData.role === 'admin' ? '管理员' : (profileData.role === 'agent' ? '智能体' : '普通用户');
                 items.push({
                     icon: '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/>',
                     value: roleText,

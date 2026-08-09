@@ -923,7 +923,8 @@
         }
 
         // ============================================================
-        // 群文件：枚举 media/ 前缀下的公共文件（排除 private 私聊内容由 key 前缀识别）
+        // 群文件：仅枚举公聊上传的媒体（media/chat/ 与 media/public/），
+        // 排除私聊媒体/头像/背景以及桶内配置、会话等敏感文件（后端同样强制过滤）
         // ============================================================
         function showGroupFiles() {
             pushPageHistory('groupFiles');
@@ -944,7 +945,7 @@
             }
             container.innerHTML = '<div style="display:flex;justify-content:center;padding:24px;"><span class="md-circular-loader"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span></div>';
             try {
-                const { data: files, error } = await s3.rpc('list_media', { p_prefix: '' });
+                const { data: files, error } = await s3.rpc('list_media', { p_prefix: 'media/' });
                 if (error) {
                     container.innerHTML = '<div class="gf-empty">加载失败: ' + (error.message || '未知错误') + '</div>';
                     return;
@@ -952,9 +953,10 @@
                 const allFiles = (Array.isArray(files) ? files : [])
                     .filter(function(f) {
                         if (!f || !f.key) return false;
-                        // 排除私聊媒体与用户头像，仅展示公共聊天/群文件
-                        if (f.key.indexOf('media/private/') === 0) return false;
-                        return true;
+                        // 安全过滤：群文件仅展示公聊上传的媒体（media/chat/ 图片/文件、media/public/ 语音/文件）。
+                        // 排除私聊媒体（media/private/）、用户头像（media/avatars/）、背景（media/background/），
+                        // 以及 media/ 之外的用户配置/会话/全局配置等敏感文件（后端已强制同样过滤，此为前端兜底）。
+                        return f.key.indexOf('media/chat/') === 0 || f.key.indexOf('media/public/') === 0;
                     })
                     .sort(function(a, b) {
                         return new Date(b.created_at) - new Date(a.created_at);

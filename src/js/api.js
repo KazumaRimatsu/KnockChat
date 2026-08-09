@@ -242,8 +242,21 @@
                 showLoginForm(savedSession.username);
                 return;
             }
-            // 无会话（如登出后）：转密码表单并自动填充上次登录的用户名
-            showLoginForm(lastLogin);
+            // 无会话：转普通登录表单（不删除 LAST_LOGIN，保留给下次刷新后快捷登录使用）
+            var quickInfo = document.getElementById('quickLoginInfo');
+            var normalForm = document.getElementById('loginNormalForm');
+            var loginHeader = document.getElementById('loginAuthHeader');
+            if (quickInfo) quickInfo.classList.add('hidden');
+            if (normalForm) normalForm.classList.remove('hidden');
+            if (loginHeader) loginHeader.classList.remove('hidden');
+            var unameEl = document.getElementById('loginUsername');
+            var pwdEl = document.getElementById('loginPassword');
+            if (lastLogin && unameEl) {
+                unameEl.value = lastLogin;
+                if (pwdEl) pwdEl.focus();
+            } else if (unameEl) {
+                unameEl.focus();
+            }
         }
 
         // v040: 切换到普通登录表单（可预填用户名，用于旧会话缺少 pwhash 的场景）
@@ -281,7 +294,16 @@
             var loginHeader = document.getElementById('loginAuthHeader');
             var lastLogin = '';
             try { lastLogin = localStorage.getItem(LS_KEYS.LAST_LOGIN) || ''; } catch (e) {}
-            if (lastLogin) {
+            // v040: 快捷登录需要有效的会话（含 pwhash），无会话时显示普通登录表单
+            var hasValidQuickSession = false;
+            try {
+                var raw = localStorage.getItem(LS_KEYS.SESSION);
+                if (raw) {
+                    var sess = JSON.parse(raw);
+                    hasValidQuickSession = !!(sess && sess.username && sess.token && sess.pwhash);
+                }
+            } catch (e) {}
+            if (lastLogin && hasValidQuickSession) {
                 if (quickInfo) quickInfo.classList.remove('hidden');
                 if (normalForm) normalForm.classList.add('hidden');
                 // 一键登录模式隐藏品牌 logo（对齐新版 MJChat 登录页布局）
@@ -986,7 +1008,7 @@
                     handlePublicMessage(msg);
                     updatePublicEntry();
                     var container = document.getElementById('publicMessages');
-                    if (!isUserScrolledUp && container) {
+                    if (container && !container._userScrolledUp) {
                         scrollToBottom(container);
                         updateScrollButton(container);
                     }
@@ -1263,6 +1285,8 @@
                     privateHasMore = usedCache ? false : privateMessages.length === PAGE_SIZE;
                 }
                 const c = document.getElementById('privateMessages');
+                // v08x 滚动修复：重渲染前记录是否贴底，渲染后保持贴底（避免新消息落在视野之外）
+                const wasAtBottom = isScrolledToBottom(c);
                 c.innerHTML = '';
                 privateLastDateLabel = '';
                 if (privateMessages.length > 0) {
@@ -1279,6 +1303,10 @@
                             av.textContent = '';
                         }
                     });
+                }
+                if (wasAtBottom && c && !c._userScrolledUp) {
+                    scrollToBottom(c);
+                    updateScrollButton(c);
                 }
                 // 网络不佳时实时广播可能丢失，轮询补拉发现的新消息需要正常播放提示音（免打扰时不播放）
                 if (notifyNew && prevIds && !usedCache) {
@@ -1454,7 +1482,8 @@
             try {
                 const { data: rpcData, error: rpcError } = await s3.rpc('delete_agent_rpc', {
                     p_agent_id: agentId,
-                    p_username: currentUser
+                    p_username: currentUser,
+                    p_session_token: getSessionToken()
                 });
                 if (rpcError) { showSnackbar('删除失败: ' + rpcError.message); return; }
                 if (rpcData && rpcData.success === false) {
@@ -1473,14 +1502,15 @@
             if (!name) { showSnackbar('请输入智能体名称'); return; }
             if (!apiKey) { showSnackbar('请输入 API Key'); return; }
             try {
-                // v043: 对 API Key 做加盐哈希，防止明文在日志或网络抓包中泄露
-                const apiKeyHash = await hashApiKey(apiKey);
+                // v082: API Key 经本机 Tauri IPC 明文传输给后端，由后端 AES-256-GCM 加密落盘；
+                // 不再前端单向哈希（哈希后后端无法用于调用 LLM），API Key 永不回传前端
                 const { data: rpcData, error: rpcError } = await s3.rpc('save_agent', {
                     p_name: name,
                     p_provider: provider,
-                    p_api_key: apiKeyHash,
+                    p_api_key: apiKey,
                     p_model: model,
-                    p_created_by: currentUser
+                    p_created_by: currentUser,
+                    p_session_token: getSessionToken()
                 });
                 if (rpcError) { showSnackbar('保存失败: ' + rpcError.message); return; }
                 if (rpcData && rpcData.success === false) {

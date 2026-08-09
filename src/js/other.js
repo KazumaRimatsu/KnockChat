@@ -185,6 +185,9 @@
         function scrollToBottom(el) {
             if (!el) return;
             el.scrollTop = el.scrollHeight;
+            // v08x：贴底同时重置容器级滚动标志（公聊/私聊各自独立）
+            el._userScrolledUp = false;
+            el._atBottomNow = true;
         }
 
         function updateScrollButton(messagesContainer) {
@@ -201,11 +204,18 @@
             if (!messagesContainer) return;
             const oldBtn = messagesContainer.querySelector('.scroll-to-bottom-btn');
             if (oldBtn) oldBtn.remove();
-            // 移除上一次绑定的滚动监听器，避免反复进入聊天后监听器累积
+            // 移除上一次绑定的滚动/手势监听器，避免反复进入聊天后监听器累积
             if (messagesContainer._scrollHandler) {
                 messagesContainer.removeEventListener('scroll', messagesContainer._scrollHandler);
                 messagesContainer._scrollHandler = null;
             }
+            ['_wheelHandler', '_touchStartHandler', '_touchMoveHandler', '_keydownHandler'].forEach(function(k) {
+                if (messagesContainer[k]) {
+                    const evt = k === '_wheelHandler' ? 'wheel' : k === '_touchStartHandler' ? 'touchstart' : k === '_touchMoveHandler' ? 'touchmove' : 'keydown';
+                    messagesContainer.removeEventListener(evt, messagesContainer[k]);
+                    messagesContainer[k] = null;
+                }
+            });
 
             const btn = document.createElement('button');
             btn.className = 'scroll-to-bottom-btn';
@@ -214,18 +224,47 @@
             btn.onclick = function(e) {
                 e.stopPropagation();
                 scrollToBottom(messagesContainer);
-                isUserScrolledUp = false;
+                messagesContainer._userScrolledUp = false;
                 updateScrollButton(messagesContainer);
                 setTimeout(() => updateScrollButton(messagesContainer), 100);
             };
             messagesContainer.appendChild(btn);
 
             let topLoadTimer = null;
+            // v08x 滚动修复：
+            // 1) 改用容器级标志（_userScrolledUp/_atBottomNow），公聊/私聊互不污染；
+            // 2) 仅真实用户手势（滚轮/触摸/键盘翻页）才标记"用户已上翻"，
+            //    程序化滚动与内容高度变化（如图片加载）不再误标，聊天记录才能持续自动贴底。
+            let userGestureTimer = null;
+            const markUserGesture = function() {
+                messagesContainer._userGesture = true;
+                clearTimeout(userGestureTimer);
+                userGestureTimer = setTimeout(function() { messagesContainer._userGesture = false; }, 600);
+            };
+            const wheelHandler = function(e) {
+                if (e.deltaY !== 0) markUserGesture();
+            };
+            const touchStartHandler = markUserGesture;
+            const touchMoveHandler = markUserGesture;
+            const keydownHandler = function(e) {
+                if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].indexOf(e.key) !== -1) markUserGesture();
+            };
+            messagesContainer._wheelHandler = wheelHandler;
+            messagesContainer._touchStartHandler = touchStartHandler;
+            messagesContainer._touchMoveHandler = touchMoveHandler;
+            messagesContainer._keydownHandler = keydownHandler;
+            messagesContainer.addEventListener('wheel', wheelHandler, { passive: true });
+            messagesContainer.addEventListener('touchstart', touchStartHandler, { passive: true });
+            messagesContainer.addEventListener('touchmove', touchMoveHandler, { passive: true });
+            messagesContainer.addEventListener('keydown', keydownHandler);
+
             const scrollHandler = function() {
-                if (isScrolledToBottom(messagesContainer)) {
-                    isUserScrolledUp = false;
-                } else {
-                    isUserScrolledUp = true;
+                const atBottom = isScrolledToBottom(messagesContainer);
+                messagesContainer._atBottomNow = atBottom;
+                if (atBottom) {
+                    messagesContainer._userScrolledUp = false;
+                } else if (messagesContainer._userGesture) {
+                    messagesContainer._userScrolledUp = true;
                 }
                 updateScrollButton(messagesContainer);
                 if (messagesContainer.scrollTop <= 5) {
@@ -241,7 +280,8 @@
                 clearTimeout(scrollTimeout);
                 scrollTimeout = setTimeout(() => {
                     if (isScrolledToBottom(messagesContainer)) {
-                        isUserScrolledUp = false;
+                        messagesContainer._userScrolledUp = false;
+                        messagesContainer._atBottomNow = true;
                     }
                     updateScrollButton(messagesContainer);
                 }, 500);
@@ -351,6 +391,8 @@
         function switchPage(targetId, forward) {
             if (isNavigating) return;
             isNavigating = true;
+            // 切换页面时关闭 @ 提及菜单（避免返回公聊页后残留旧弹层）
+            if (typeof closeMentionMenu === 'function') closeMentionMenu();
             const pages = document.querySelectorAll('.page');
             const targetPage = document.getElementById(targetId);
             if (!targetPage) { isNavigating = false; return; }
@@ -623,6 +665,8 @@
                     const { data: rpcData } = await s3.rpc('get_user_profile', { p_uid: currentUid, p_username: currentUser });
                     if (rpcData && rpcData.success !== false) {
                         status.textContent = rpcData.banned ? '已封禁' : '正常';
+                        if (rpcData.role === 'admin') role.textContent = '管理员';
+                        else if (rpcData.role === 'agent') role.textContent = '智能体';
                         return;
                     }
                 } catch (e) { /* ignore */ }

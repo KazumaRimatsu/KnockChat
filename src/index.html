@@ -229,14 +229,12 @@
                     <button class="more-btn" id="publicMoreBtn" onclick="toggleFeaturePanel()" title="更多功能">
                         <svg viewBox="0 0 24 24"><use href="#icon-plus" xlink:href="#icon-plus"/></svg>
                     </button>
-                    <div class="input-container">
-                        <textarea class="msg-input" id="publicMsgInput" placeholder="按Enter发送，Ctrl/Shift+Enter换行" rows="1" oninput="autoResize(this);togglePublicSendBtn()" onkeydown="handlePublicKeyDown(event)"></textarea>
-                    </div>
+                    <div class="input-container"><textarea class="msg-input" id="publicMsgInput" placeholder="按Enter发送，Ctrl/Shift+Enter换行" rows="1" oninput="autoResize(this);togglePublicSendBtn();updateMentionFromInput(this)" onkeydown="handlePublicKeyDown(event)"></textarea></div>
                     <button class="fab-send" id="publicSendBtn" onclick="sendPublicMsg()" disabled>
                         <svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
                     </button>
                 </div>
-                <div class="feature-panel" id="publicFeaturePanel">
+                <div class="mention-menu" id="publicMentionMenu"></div><div class="feature-panel" id="publicFeaturePanel">
                     <div id="featurePanelMain">
                         <div class="feature-grid">
                             <div class="feature-item" onclick="openImagePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-image" xlink:href="#icon-image"/></svg></div><span class="feature-label">图片</span></div>

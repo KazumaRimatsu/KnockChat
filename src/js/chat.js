@@ -20,7 +20,6 @@
         let contextTarget = null;
         let lastPokeTime = 0;
         let currentAvatarUrl = '';
-        let isUserScrolledUp = false;
         let scrollTimeout = null;
         let privateUnreadCounts = {};
         let publicUnread = 0;
@@ -443,6 +442,16 @@
                     wrap.classList.add('loaded');
                     // v073：缓存 objectURL 用后即释放，防止内存持续增长
                     if (typeof revokeImageObjectUrl === 'function') revokeImageObjectUrl(src);
+                    // v08x 滚动修复：图片加载使消息变高（占位图 1px → 真实图），
+                    // 若容器此前贴底且用户未上翻，则布局应用后继续贴底，避免新消息被顶出视野
+                    const container = wrap.closest('#publicMessages, #privateMessages');
+                    if (container && !container._userScrolledUp && container._atBottomNow) {
+                        requestAnimationFrame(function() {
+                            if (container._userScrolledUp) return;
+                            scrollToBottom(container);
+                            updateScrollButton(container);
+                        });
+                    }
                 });
                 img.addEventListener('error', function() {
                     img.classList.add('img-loaded');
@@ -455,6 +464,14 @@
                         span.style.cssText = 'font-size:0.75rem;color:var(--md-on-surface-variant);padding:4px';
                         span.textContent = '图片加载失败';
                         wrap.appendChild(span);
+                    }
+                    const container = wrap.closest('#publicMessages, #privateMessages');
+                    if (container && !container._userScrolledUp && container._atBottomNow) {
+                        requestAnimationFrame(function() {
+                            if (container._userScrolledUp) return;
+                            scrollToBottom(container);
+                            updateScrollButton(container);
+                        });
                     }
                 });
                 img.src = src || url;
@@ -812,7 +829,142 @@
                 !replyTarget;
         }
 
+        // ==================== @ 提及快速选择 ====================
+        // 输入 @ 弹出候选（普通用户 + 智能体），方向键/Enter/Tab 选择，Esc 关闭；
+        // 选择后光标处插入 "@名字 "，checkAgentMention 发送时仍按名字触发智能体。
+        let mentionActive = false;
+        let mentionCandidates = [];
+        let mentionFilter = '';
+        let mentionSel = -1;
+
+        function getMentionMenu() { return document.getElementById('publicMentionMenu'); }
+
+        async function updateMentionFromInput(input) {
+            if (!input || input.id !== 'publicMsgInput') return;
+            const pos = (typeof input.selectionStart === 'number') ? input.selectionStart : input.value.length;
+            const before = input.value.substring(0, pos);
+            const m = before.match(/@([\w\u4e00-\u9fa5]*)$/);
+            if (m) {
+                const prefix = m[1] || '';
+                if (mentionActive) {
+                    if (mentionFilter !== prefix) {
+                        mentionFilter = prefix;
+                        mentionSel = -1;
+                        loadMentionCandidates(prefix);
+                    }
+                } else {
+                    mentionActive = true;
+                    mentionFilter = prefix;
+                    mentionSel = -1;
+                    loadMentionCandidates(prefix);
+                }
+            } else if (mentionActive) {
+                closeMentionMenu();
+            }
+        }
+
+        async function loadMentionCandidates(query) {
+            try {
+                const { data, error } = await s3.rpc('mention_candidates', { p_query: query || '', p_limit: 30 });
+                mentionCandidates = (!error && Array.isArray(data)) ? data : [];
+            } catch (e) {
+                mentionCandidates = [];
+            }
+            renderMentionMenu();
+        }
+
+        function renderMentionMenu() {
+            const menu = getMentionMenu();
+            if (!menu) return;
+            if (!mentionActive || mentionCandidates.length === 0) {
+                menu.style.display = 'none';
+                return;
+            }
+            if (mentionSel < 0) mentionSel = 0;
+            if (mentionSel >= mentionCandidates.length) mentionSel = mentionCandidates.length - 1;
+            // 定位：以输入框为锚点，在公聊页（position:relative）内计算坐标，
+            // 避免被 .chat-bar 的 overflow:hidden 裁剪
+            try {
+                const input = document.getElementById('publicMsgInput');
+                const page = document.getElementById('publicPage');
+                const inputRect = input.getBoundingClientRect();
+                const pageRect = page.getBoundingClientRect();
+                menu.style.left = (inputRect.left - pageRect.left) + 'px';
+                menu.style.width = inputRect.width + 'px';
+                menu.style.bottom = (pageRect.bottom - inputRect.top + 8) + 'px';
+            } catch (e) { /* 忽略定位异常，按默认位置显示 */ }
+            menu.style.display = 'block';
+            menu.innerHTML = mentionCandidates.map(function(c, i) {
+                const name = c.username || '';
+                const roleBadge = c.role === 'agent'
+                    ? '<span class="mention-role agent">智能体</span>'
+                    : '<span class="mention-role">用户</span>';
+                const avatarUrl = (c.avatar_url && typeof sanitizeAvatarUrl === 'function') ? sanitizeAvatarUrl(c.avatar_url) : '';
+                const avatarAttr = avatarUrl ? ' style="background-image:url(\'' + escapeAttr(avatarUrl) + '\')"' : '';
+                const avatarText = avatarAttr ? '' : escapeHtml(String(name.charAt(0) || '?').toUpperCase());
+                return '<div class="mention-item' + (i === mentionSel ? ' active' : '') + '" data-index="' + i + '"' +
+                    ' onmousedown="pickMention(' + i + ')">' +
+                    '<span class="mention-avatar"' + avatarAttr + '>' + avatarText + '</span>' +
+                    '<span class="mention-name">' + escapeHtml(name) + '</span>' + roleBadge +
+                    '</div>';
+            }).join('');
+        }
+
+        function moveMentionSel(delta) {
+            if (!mentionActive || mentionCandidates.length === 0) return;
+            mentionSel = (mentionSel + delta + mentionCandidates.length) % mentionCandidates.length;
+            renderMentionMenu();
+            // 手动滚动菜单内选中项可见（不用 scrollIntoView，避免带动消息区滚动）
+            const menu = getMentionMenu();
+            const active = menu.querySelector('.mention-item.active');
+            if (active) {
+                const mRect = active.getBoundingClientRect();
+                const menuRect = menu.getBoundingClientRect();
+                if (mRect.top < menuRect.top) menu.scrollTop -= (menuRect.top - mRect.top);
+                else if (mRect.bottom > menuRect.bottom) menu.scrollTop += (mRect.bottom - menuRect.bottom);
+            }
+        }
+
+        function selectMention() {
+            const c = mentionCandidates[mentionSel];
+            if (!c) { closeMentionMenu(); return; }
+            const input = document.getElementById('publicMsgInput');
+            const pos = (typeof input.selectionStart === 'number') ? input.selectionStart : input.value.length;
+            const before = input.value.substring(0, pos);
+            const after = input.value.substring(pos);
+            const replaced = before.replace(/@[\w\u4e00-\u9fa5]*$/, '@' + c.username + ' ');
+            input.value = replaced + after;
+            const newPos = replaced.length;
+            try { input.setSelectionRange(newPos, newPos); } catch (e) { /* ignore */ }
+            autoResize(input);
+            togglePublicSendBtn();
+            closeMentionMenu();
+            input.focus();
+        }
+
+        function pickMention(index) {
+            mentionSel = index;
+            selectMention();
+        }
+
+        function closeMentionMenu() {
+            mentionActive = false;
+            mentionCandidates = [];
+            mentionFilter = '';
+            mentionSel = -1;
+            const menu = getMentionMenu();
+            if (menu) menu.style.display = 'none';
+        }
+
         function handlePublicKeyDown(e) {
+            // @ 菜单打开时优先响应选择键
+            if (mentionActive && mentionCandidates.length > 0) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); moveMentionSel(1); return; }
+                if (e.key === 'ArrowUp') { e.preventDefault(); moveMentionSel(-1); return; }
+                if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) { e.preventDefault(); selectMention(); return; }
+                if (e.key === 'Tab') { e.preventDefault(); selectMention(); return; }
+                if (e.key === 'Escape') { e.preventDefault(); closeMentionMenu(); return; }
+            }
             if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
                 e.preventDefault();
                 sendPublicMsg();
@@ -884,8 +1036,9 @@
             if (container) {
                 scrollToBottom(container);
                 updateScrollButton(container);
-                isUserScrolledUp = false;
+                container._userScrolledUp = false;
             }
+            closeMentionMenu();
             checkAgentMention(text);
         }
 
@@ -1885,7 +2038,7 @@
                 if (container) {
                     scrollToBottom(container);
                     updateScrollButton(container);
-                    isUserScrolledUp = false;
+                    container._userScrolledUp = false;
                 }
             }
             notifyPrivateMsg(privateSessionId, currentUser);
