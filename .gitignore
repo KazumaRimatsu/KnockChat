@@ -1,35 +1,34 @@
+# 构建产物
 newer_versions/
 build/
 dist/
+src-tauri/target/
+
+# Python（BELL/ 辅助脚本）
 *.spec
 __pycache__/
 *.pyc
+
+# 本地运行时数据
 userdata/
 临时/
 
-src-tauri/target/
+# 配置（可能含敏感信息，勿提交）
+api-config.json*
 s3-config.json
-# Logs
+
+# 日志（*.log 已覆盖 npm/yarn/pnpm/lerna 等各类日志）
 logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
 *.local
 
-# Editor directories and files
+# 依赖
+node_modules
+
+# 编辑器 / 系统文件
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
 *.sw?
+BELL/api-config.json
