@@ -1341,6 +1341,8 @@
                     updateLoadingText('登录中…', '欢迎回来 ' + currentUser);
                     authorizeEnterApp();
                     enterApp();
+                    // v089: 会话恢复登录后同样自动检查一次更新（静默模式）
+                    checkUpdate(true);
                     if (userData.needs_relogin) {
                         setTimeout(() => {
                             showSnackbar('安全提示：请退出后重新登录以更新安全凭证');
@@ -1360,44 +1362,82 @@
             }
         }
 
-        // v089: 检查更新——从存储桶 upd/latest.json 读取最新版本元数据并展示下载入口
-        async function checkUpdate() {
+        // v089: 打开外部链接——Tauri 环境走系统默认浏览器（opener 插件，裸 window.open
+        // 会被 WebView 拦截导致"点击无反应"），浏览器环境回退 window.open
+        function openExternalUrl(url) {
+            if (!url) return;
+            if (window.__TAURI__ && window.__TAURI__.opener && window.__TAURI__.opener.openUrl) {
+                window.__TAURI__.opener.openUrl(url).catch(function(err) {
+                    if (window.__debugLog) window.__debugLog('外链打开失败: ' + url + ' -> ' + ((err && err.message) || err));
+                });
+                return;
+            }
+            window.open(url, '_blank', 'noopener');
+        }
+
+        // v089: 检查更新——从存储桶 upd/latest.json 读取最新版本元数据并展示下载入口。
+        // silent=true 为登录时自动检查：无新版本或最新版本号与客户端相同 → 静默不打扰；
+        // 有新版本 → 弹确认框提示下载。手动点击「检查更新」→ 内联展示完整结果。
+        async function checkUpdate(silent) {
             const box = document.getElementById('aboutUpdateInfo');
-            if (!box) return;
-            box.style.display = 'block';
-            box.innerHTML = '正在检查更新…';
+            let data = null;
             try {
-                const { data, error } = await s3.rpc('get_update_info', {});
-                if (error || !data || data.success === false) {
-                    box.innerHTML = '检查更新失败：' + escapeHtml((error && error.message) || (data && data.message) || '服务异常');
+                const { data: rpcData, error } = await s3.rpc('get_update_info', {});
+                if (!error && rpcData && rpcData.success !== false) data = rpcData;
+            } catch (e) { data = null; }
+            if (!data) {
+                if (!silent && box) {
+                    box.style.display = 'block';
+                    box.innerHTML = '检查更新失败：服务异常';
+                }
+                return;
+            }
+            // v089: 最新版本号不高于客户端版本号时视为无更新（不展示更新提示）
+            const hasUpdate = data.available && (data.version || 0) > (KERNEL_VERSION || 0);
+            if (!hasUpdate) {
+                if (silent) {
+                    if (box) box.style.display = 'none';
                     return;
                 }
-                if (!data.available) {
+                if (box) {
+                    box.style.display = 'block';
                     box.innerHTML = '当前已是最新版本（内核 v' + String(KERNEL_VERSION).padStart(3, '0') + '）';
-                    return;
                 }
-                const curTag = 'v' + String(KERNEL_VERSION).padStart(3, '0');
-                const newTag = data.version_tag || ('v' + String(data.version || 0).padStart(3, '0'));
-                const sizeText = data.size ? formatBytes(data.size) : '';
-                const pubText = data.published_at ? String(data.published_at).replace('T', ' ').replace(/\..+?Z?$/, '').trim() : '';
-                const isNew = (data.version || 0) > (KERNEL_VERSION || 0);
-                const lines = [
-                    '最新版本：' + newTag + (isNew ? '' : '（与当前相同）'),
-                    '当前版本：内核 ' + curTag,
-                    '文件：' + (data.filename || '未知'),
-                    sizeText ? '大小：' + sizeText : '',
-                    pubText ? '发布时间：' + pubText : '',
-                    data.notes ? '更新说明：\n' + data.notes : ''
-                ].filter(Boolean);
-                let html = lines.map(escapeHtml).join('<br>');
-                if (data.download_url) {
-                    html += '<br><button class="md-button primary" id="updateDownloadBtn">下载安装包</button>';
-                }
+                return;
+            }
+            const newTag = data.version_tag || ('v' + String(data.version || 0).padStart(3, '0'));
+            const sizeText = data.size ? formatBytes(data.size) : '';
+            if (silent) {
+                // 登录时自动检查：弹确认框，确认后打开下载链接
+                const msg = '最新版本：' + newTag +
+                    (sizeText ? '，大小：' + sizeText : '') +
+                    (data.notes ? '\n更新说明：' + data.notes : '') +
+                    '\n\n是否立即下载安装包？';
+                showConfirm('发现新版本 ' + newTag, msg, function() {
+                    openExternalUrl(data.download_url);
+                });
+                return;
+            }
+            // 手动检查：内联展示详情 + 下载按钮
+            const curTag = 'v' + String(KERNEL_VERSION).padStart(3, '0');
+            const pubText = data.published_at ? String(data.published_at).replace('T', ' ').replace(/\..+?Z?$/, '').trim() : '';
+            const lines = [
+                '最新版本：' + newTag,
+                '当前版本：内核 ' + curTag,
+                '文件：' + (data.filename || '未知'),
+                sizeText ? '大小：' + sizeText : '',
+                pubText ? '发布时间：' + pubText : '',
+                data.notes ? '更新说明：\n' + data.notes : ''
+            ].filter(Boolean);
+            let html = lines.map(escapeHtml).join('<br>');
+            if (data.download_url) {
+                html += '<br><button class="md-button primary" id="updateDownloadBtn">下载安装包</button>';
+            }
+            if (box) {
+                box.style.display = 'block';
                 box.innerHTML = html;
                 const dl = document.getElementById('updateDownloadBtn');
-                if (dl) dl.onclick = function() { window.open(data.download_url, '_blank', 'noopener'); };
-            } catch (e) {
-                box.innerHTML = '检查更新失败：' + escapeHtml((e && e.message) || e);
+                if (dl) dl.onclick = function() { openExternalUrl(data.download_url); };
             }
         }
 

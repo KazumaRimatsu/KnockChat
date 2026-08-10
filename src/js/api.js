@@ -596,6 +596,8 @@
                 if (window.__debugLog) window.__debugLog('登录成功: ' + currentUser + ' (uid=' + currentUid + ')');
                 authorizeEnterApp();
                 enterApp();
+                // v089: 登录成功后自动检查一次更新（静默模式：无新版本或版本相同不打扰）
+                checkUpdate(true);
             } catch (e) {
                 clearTimeout(_loginTimeout);
                 hideGlobalLoading();

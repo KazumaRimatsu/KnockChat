@@ -416,13 +416,12 @@ class Store:
     }
 
     def list_media(self, prefix):
-        """列出前缀下全部媒体对象"""
-        if prefix == "群文件（图片/文件，media/chat + media/public）":
-            items = []
-            for p in self.MEDIA_PREFIXES[prefix]:
-                items.extend(self.s3.list_objects(p))
-            return items
-        return self.s3.list_objects(prefix)
+        """列出前缀下全部媒体对象（prefix 为下拉框显示文本，统一映射为真实前缀）"""
+        prefixes = self.MEDIA_PREFIXES.get(prefix) or [prefix]
+        items = []
+        for p in prefixes:
+            items.extend(self.s3.list_objects(p))
+        return items
 
     @staticmethod
     def media_key_from_url(url):
@@ -467,13 +466,16 @@ class Store:
         return self.s3.get_json(self.UPDATE_META_KEY)
 
     def publish_update(self, version, filepath, notes=""):
-        """推送更新包：上传安装包到 upd/<文件名>，并写入 upd/latest.json 元数据。
-        返回 (安装包文件名, 元数据 dict)。"""
-        filename = os.path.basename(filepath)
+        """推送更新包：安装包自动命名为 upd/KnockChat_vXXX<扩展名>，并写入 upd/latest.json 元数据。
+        推送后清理：仅保留版本号最高的 3 个安装包（当前 + 前 2 个），更旧的自动删除。
+        返回 (安装包 key, 元数据 dict)。"""
+        ext = os.path.splitext(filepath)[1] or ".bin"
+        filename = f"KnockChat_v{int(version):03d}{ext}"
+        key = f"upd/{filename}"
         with open(filepath, "rb") as f:
             data = f.read()
         sha = hashlib.sha256(data).hexdigest()
-        self.s3.put_object(f"upd/{filename}", data, "application/octet-stream")
+        self.s3.put_object(key, data, "application/octet-stream")
         meta = {
             "version": int(version),
             "version_tag": f"v{int(version):03d}",
@@ -484,7 +486,30 @@ class Store:
             "notes": notes,
         }
         self.s3.put_json(self.UPDATE_META_KEY, meta)
-        return filename, meta
+        # 清理：保留当前 + 前 2 个版本（共 3 个）的安装包
+        self._prune_update_packages()
+        return key, meta
+
+    def _prune_update_packages(self):
+        """仅保留 upd/ 下版本号最高的 3 个 KnockChat_vXXX.* 安装包，更旧的删除"""
+        try:
+            objs = self.s3.list_objects("upd/")
+        except Exception:
+            return  # 列表失败不阻塞推送
+        versions = {}
+        for o in objs:
+            key = o["key"]
+            m = re.match(r"upd/KnockChat_v(\d+)", key)
+            if not m:
+                continue  # 跳过 upd/latest.json 等非安装包对象
+            versions.setdefault(int(m.group(1)), key)
+        if len(versions) <= 3:
+            return
+        for ver in sorted(versions, reverse=True)[3:]:
+            try:
+                self.s3.delete_object(versions[ver])
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -779,17 +804,24 @@ class App:
             tkinter.messagebox.showwarning("提示", "请先选择有效的安装包文件")
             return
         version = int(ver_text)
-        name = os.path.basename(path)
-        if not self.confirm(f"确认将 {name} 推送为 v{version:03d} 更新包？\n"
-                            f"推送后客户端「检查更新」即可看到并下载。"):
+        ext = os.path.splitext(path)[1] or ""
+        new_name = f"KnockChat_v{version:03d}{ext}"
+        if not self.confirm(f"确认推送更新包 v{version:03d}？\n"
+                            f"安装包将自动命名为：{new_name}\n"
+                            f"推送后仅保留最新 3 个版本，更旧的安装包会被自动删除。\n"
+                            f"客户端「检查更新」即可看到并下载。"):
             return
         self._bg(lambda: self.store.publish_update(version, path, notes),
                  self._after_publish_update)
 
     def _after_publish_update(self, result):
-        filename, meta = result
-        self.log(f"更新包已推送：upd/{filename}（v{meta['version']:03d}）")
-        self.update_info_var.set(f"推送成功：v{meta['version']:03d}，文件 {filename}")
+        key, meta = result
+        self.log(f"更新包已推送：{key}（v{meta['version']:03d}）")
+        self.update_info_var.set(f"推送成功：v{meta['version']:03d}，文件 {meta['filename']}")
+        # 推送成功后清空表单，便于下次输入
+        self.upd_version.set("")
+        self.upd_file.set("")
+        self.upd_notes.delete("1.0", "end")
         self.refresh_update_info()
 
     # ---------------- 后台执行 ----------------
