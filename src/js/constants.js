@@ -1,8 +1,9 @@
 /* KnockChat 常量定义：存储结构说明、表名/路径、版本、限制、通知音等全局常量 */
 
-        // 本应用已弃用 Supabase，改为雨云存储桶（AWS S3 兼容 API）。
-        // 凭证只保存在 src-tauri Rust 侧（s3-config.json 或 CIKACHAT_S3_* 环境变量），
-        // 前端统一通过 src/js/s3.js 桥接层调用 Tauri invoke（s3rpc_* 命令）。
+        // 本应用已弃用 Supabase，后端为 Cloudflare Worker 托管 API（服务端读写雨云存储桶）。
+        // 凭证只保存在 Worker 的 Secret 环境变量（及 BELL 管理端本机配置），
+        // 客户端（含打包后的 exe）不包含任何云存储密钥。
+        // 前端统一通过 src/js/s3.js 桥接层调用 HTTP API（POST /rpc）。
         // 单存储桶目录结构（对象 Key 前缀）：
         //   users/                用户资料
         //   sessions/             登录会话
@@ -10,11 +11,14 @@
         //   private/sessions/     私聊会话
         //   private/messages/     私聊消息
         //   media/                图片/语音/文件/头像（媒体统一存该前缀下）
-        //   agents/               智能体配置（预留）
+        //   agents/               智能体配置
         //   config/               云控等全局配置（预留）
+        // 服务端 API 地址：打包前请替换为实际部署的 Worker 地址
+        //（也可在应用内 localStorage 写入 cika_api_base 覆盖，便于调试/多环境切换）
+        const API_BASE_URL = 'https://api-knockchat.cika.workers.dev';
         const HISTORY_LIMIT = 200;
         // v088: 内核版本号——关于页「内核版本」的显示来源，发布新版本时只需更新此常量
-        const KERNEL_VERSION = 91;
+        const KERNEL_VERSION = 92;
         const CC_BANNER_TITLE = '系统维护';
         const CC_BANNER_MSG = '系统正在维护，暂时无法登录。';
         const SALT = 'mjchat_2026_salt_v1';
@@ -24,7 +28,7 @@
         const COMPRESS_THRESHOLD = 2 * 1024 * 1024;
         const MAX_IMAGES_PER_MSG = 8;
         const MAX_FILE_SIZE = 32 * 1024 * 1024;
-        // 上传大小/时长限制（本地首道校验，与后端 s3rpc media_upload_limit 保持一致）
+        // 上传大小/时长限制（本地首道校验，与后端 Worker mediaUploadLimit 保持一致）
         const MAX_AVATAR_SIZE = 5 * 1024 * 1024;        // 头像原图上限 5MB（裁剪压缩后通常 100-200KB）
         const MAX_AVATAR_FINAL_SIZE = 1 * 1024 * 1024;  // 头像裁剪后最终上传上限 1MB
         const MAX_BG_SIZE = 8 * 1024 * 1024;            // 背景原图上限 8MB
@@ -62,17 +66,6 @@
         const ICON_PLAY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
         const ICON_PAUSE = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
 
-        // 表情列表（公聊/私聊选择器共用，仅渲染一次）
-        const EMOJIS = ['😀', '😂', '🥰', '😎', '🤔', '😴', '😭', '😡', '👍', '👎', '❤️', '🔥', '🎉', '✨', '💯', '🚀', '👀', '🤝',
-            '🙏', '💪', '☕', '🍕', '🎵', '⭐', '🌙', '🌸', '💎', '🎯', '🎨', '🎭', '🎪', '🎤', '🎧', '🎸', '🎹', '🎺', '🎻', '🥁', '🎲',
-            '♟️', '🎳', '🎮', '🕹️', '🎬', '🎶', '🎼', '🥳', '🤯', '🤩', '😇', '🙃', '😉', '😋', '😜', '🤪', '🤭', '🫡', '🫶', '🤍',
-            '💚', '💙', '🩵', '💜', '🤎', '🖤', '💝', '💖', '💗', '💓', '💞', '💕', '💟', '❣️', '💔', '❤️‍🔥', '❤️‍🩹', '💘', '💌',
-            '💋', '🫦', '💢', '💬', '🗯️', '💭', '💤', '💫', '🌀', '🌊', '🌈', '☀️', '🌤️', '⛅', '🌥️', '🌦️', '☁️', '🌧️', '⛈️', '🌩️',
-            '🌨️', '❄️', '☃️', '⛄', '🌬️', '💨', '🌪️', '🌫️', '💧', '💦', '☔', '☂️', '🌂', '🧵', '🧶', '👗', '👘', '🥻',
-            '🩱', '🩲', '🩳', '👙', '👚', '👕', '👖', '🧣', '🧤', '🧥', '🧦', '👔', '👞', '👟', '🥾', '🥿', '👠', '👡', '👢', '👑',
-            '👒', '🎩', '🎓', '🧢', '⛑️', '📿', '💄', '💍', '🔮', '🖼️'
-        ];
-
         // 本地存储键集中定义：全部 localStorage/IndexedDB/Cache 键名统一在此维护，
         // 其余文件一律通过 LS_KEYS 引用，避免散落字符串。
         // 警告：键名即实际存储 key，改动会破坏现有用户数据/配置/缓存，非必要勿修改。
@@ -95,6 +88,7 @@
             FONT_STORE: 'cika_font_store_v1',                   // 字体设置
             IMGCACHE_DB: 'cika-imgcache-v1',                    // 图片字节缓存（Cache API）
             PAGE_STACK: 'mjchat_page_stack',                    // 页面导航栈（恢复上次所在页）
+            API_BASE: 'cika_api_base',                          // 服务端 API 地址覆盖（调试/多环境；留空用 API_BASE_URL）
             CSRF: 'mjchat_csrf',                                // CSRF 令牌（sessionStorage，短期）
             BANNER_DISMISSED: 'mjchat_banner_dismissed',        // 隐私横幅已关闭标记（sessionStorage，单次会话）
             // 旧版遗留键：数据已并入加密用户配置，仅启动兜底清理时删除，不再写入

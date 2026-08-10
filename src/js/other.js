@@ -24,10 +24,18 @@
         }
 
         // 解析 mjv064 标签开头的属性（[1] 为属性串，[2] 为标签内容）
+        // 属性值写入时经 escapeHtml 转义，解析时需还原（&amp; → & 等），
+        // 否则预签名 URL 里的 & 会变成字面 &amp;，导致签名参数错乱、图片/文件加载 403。
+        function _decodeMjV064Value(s) {
+            if (s == null) return '';
+            const d = document.createElement('div');
+            d.innerHTML = String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return d.textContent;
+        }
         function _parseMjV064(matchResult) {
             var attrs = {};
             if (!matchResult) return attrs;
-            matchResult[1].replace(/(\w+)="([^"]*)"/g, function(m, k, v) { attrs[k] = v; });
+            matchResult[1].replace(/(\w+)="([^"]*)"/g, function(m, k, v) { attrs[k] = _decodeMjV064Value(v); });
             return attrs;
         }
 
@@ -38,8 +46,11 @@
             if (!m) return '';
             var a = _parseMjV064(m);
             if (a.type === 'voice') return '[语音]';
-            if (a.type === 'link') return '[链接] ' + (a.text || a.url || '');
+            // v089: 链接预览不再拼接 url/text，避免侧边栏/回复预览暴露完整链接
+            if (a.type === 'link') return '[链接]';
             if (a.type === 'file') return '[文件] ' + (a.name || '');
+            // v091: 自定义表情预览（CQ 码与图片分开，预览只显示占位文案）
+            if (a.type === 'emoji') return '[表情]';
             return '[消息]';
         }
 
@@ -72,8 +83,9 @@
         // 语音消息气泡 HTML（公聊/私聊共用；无 audio_url 时显示升级提示）
         function buildVoiceBubbleHtml(audioUrl, duration, noUrlText) {
             const durStr = formatDuration(duration);
-            if (audioUrl) {
-                return `<div class="voice-msg-wrap" data-audio="${escapeAttr(audioUrl)}" data-dur="${Number(duration) || 0}" onclick="toggleVoicePlay(this, event)"><button class="voice-play-btn">${ICON_PLAY}</button><div class="voice-waves">${buildVoiceWaves()}</div><span class="voice-dur">${durStr}</span></div>`;
+            const cleanAudioUrl = mediaUrlToPublic(audioUrl);
+            if (cleanAudioUrl) {
+                return `<div class="voice-msg-wrap" data-audio="${escapeAttr(cleanAudioUrl)}" data-dur="${Number(duration) || 0}" onclick="toggleVoicePlay(this, event)"><button class="voice-play-btn">${ICON_PLAY}</button><div class="voice-waves">${buildVoiceWaves()}</div><span class="voice-dur">${durStr}</span></div>`;
             }
             return `<div class="voice-msg-wrap"><span class="voice-dur">${durStr}</span><span style="font-size:0.75rem;color:var(--md-on-surface-variant);margin-left:8px;">${escapeHtml(noUrlText || '请升级到最新版本播放')}</span></div>`;
         }
@@ -81,8 +93,9 @@
         // 填充用户头像元素：有 URL 用背景图，否则显示首字母
         function fillUserAvatar(avatarEl, user, avatarUrl) {
             if (!avatarEl || !user) return;
-            if (avatarUrl) {
-                avatarEl.style.backgroundImage = `url(${avatarUrl})`;
+            const cleanUrl = mediaUrlToPublic(avatarUrl);
+            if (cleanUrl) {
+                avatarEl.style.backgroundImage = `url(${cleanUrl})`;
                 avatarEl.textContent = '';
             } else {
                 avatarEl.style.backgroundImage = '';
@@ -101,9 +114,26 @@
 
         function sanitizeAvatarUrl(url) {
             if (!url || typeof url !== 'string') return '';
-            const u = url.trim();
+            const u = mediaUrlToPublic(url);
             if (!/^https?:\/\//i.test(u)) return '';
             return u.replace(/['"\\]/g, '');
+        }
+
+        // 将（已过期/更换 AK 后失效的）预签名媒体链接还原为同源的公开直链：
+        // 去掉 ?X-Amz-* 签名参数。桶为公共读，直链永久有效（已验证 GET 200），
+        // 避免头像、背景、图片、文件因 7 天签名过期或旧 AK 失效而 403 无法加载。
+        // 非预签名链接（已是公开直链）原样返回。
+        function mediaUrlToPublic(url) {
+            if (!url || typeof url !== 'string') return '';
+            const u = url.trim();
+            if (!/^https?:\/\//i.test(u)) return '';
+            try {
+                const parsed = new URL(u);
+                if (/X-Amz-/i.test(parsed.search)) parsed.search = '';
+                return parsed.toString();
+            } catch (e) {
+                return u.replace(/['"\\]/g, '');
+            }
         }
 
         function getMessagePreview(text) {
@@ -114,6 +144,8 @@
             }
             const mjPreview = getMjV064Preview(text);
             if (mjPreview) return mjPreview;
+            // v089: 纯图片 markdown（![](...)）预览归一为 [图片]
+            if (/^!\[[^\]]*\]\([^)]*\)/.test(text)) return '[图片]';
             if (text.startsWith('🎤 ')) return text.replace(/ → .*$/, '');
             if (text.startsWith('🔗 ')) return '[链接]';
             if (text.startsWith('📎 ')) {
@@ -652,12 +684,14 @@
         function showProfileDialog() {
             const avatar = document.getElementById('profileDialogAvatar');
             const name = document.getElementById('profileDialogUsername');
+            const uid = document.getElementById('profileDialogUid');
             const role = document.getElementById('profileDialogRole');
             const status = document.getElementById('profileDialogStatus');
             const idx = hashStr(currentUser) % 8;
             avatar.className = 'profile-avatar av-' + idx;
             fillUserAvatar(avatar, currentUser, currentAvatarUrl);
             name.textContent = currentUser;
+            uid.textContent = currentUid ? String(currentUid) : '-';
             role.textContent = '普通用户';
             (async () => {
                 try {
@@ -666,6 +700,8 @@
                         status.textContent = rpcData.banned ? '已封禁' : '正常';
                         if (rpcData.role === 'admin') role.textContent = '管理员';
                         else if (rpcData.role === 'agent') role.textContent = '智能体';
+                        // v090: 以服务端返回的 uid 为准（本地缓存可能过期）
+                        if (rpcData.uid) uid.textContent = String(rpcData.uid);
                         return;
                     }
                 } catch (e) { /* ignore */ }

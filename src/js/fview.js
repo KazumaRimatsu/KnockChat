@@ -686,6 +686,9 @@
 
         function previewImage(url, filename) {
             if (!url) return;
+            // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+            url = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
+            if (!url) return;
             if (_fviewReuseExisting(url, filename)) return;
             const win = _fviewCreateWindow('image', url, filename || '');
             const m = win.media;
@@ -722,6 +725,9 @@
 
         function openVideoPreview(url, filename) {
             if (!url) return;
+            // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+            url = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
+            if (!url) return;
             if (_fviewReuseExisting(url, filename)) return;
             const win = _fviewCreateWindow('video', url, filename || '');
             const m = win.media;
@@ -731,6 +737,9 @@
         }
 
         function openAudioPreview(url, filename) {
+            if (!url) return;
+            // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+            url = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
             if (!url) return;
             if (_fviewReuseExisting(url, filename)) return;
             const win = _fviewCreateWindow('audio', url, filename || '');
@@ -767,6 +776,9 @@
         }
 
         async function openFilePreview(url, filename) {
+            if (!url) return;
+            // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+            url = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
             if (!url) return;
             filename = filename || '';
             // 先刷新可能已过期的预签名 URL，再决定预览方式

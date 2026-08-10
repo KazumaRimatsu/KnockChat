@@ -21,55 +21,6 @@
     box-shadow: none;
 }
 
-/* 「+」更多功能按钮 */
-.public-page .chat-bar .more-btn,
-.private-page .chat-bar .more-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    min-width: 36px;
-    margin-bottom: 4px;
-    border: none;
-    border-radius: 50%;
-    background: var(--md-chatbar-btn-bg);
-    color: var(--md-chatbar-text-muted);
-    cursor: pointer;
-    transition: background 0.2s, color 0.2s;
-}
-
-.public-page .chat-bar .more-btn:hover,
-.private-page .chat-bar .more-btn:hover {
-    background: var(--md-chatbar-btn-hover);
-}
-
-.public-page .chat-bar .more-btn:active,
-.private-page .chat-bar .more-btn:active {
-    background: var(--md-chatbar-btn-active);
-}
-
-.public-page .chat-bar .more-btn svg,
-.private-page .chat-bar .more-btn svg {
-    width: 24px;
-    height: 24px;
-    fill: currentColor;
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-/* 面板展开时按钮高亮并旋转 135°（变叉号） */
-.public-page .chat-bar .more-btn.active,
-.private-page .chat-bar .more-btn.active {
-    background: var(--md-primary);
-    color: var(--md-on-primary);
-}
-
-.public-page .chat-bar .more-btn.active svg,
-.private-page .chat-bar .more-btn.active svg {
-    transform: rotate(135deg);
-}
-
 /* 输入框容器 */
 .public-page .chat-bar .input-container,
 .private-page .chat-bar .input-container {
@@ -179,42 +130,44 @@
     to { transform: rotate(360deg); }
 }
 
-/* --- 功能面板（输入栏上方展开） --- */
+/* --- 功能面板（v090 起常驻平铺在输入框下方，适配桌面端；子面板内部切换） --- */
 .feature-panel {
     flex-shrink: 0;
-    max-height: 0;
     overflow: hidden;
     background: var(--md-panel-bg);
-    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-top: var(--md-outline-width) var(--md-outline-style) var(--md-outline-variant, transparent);
 }
 
-.feature-panel.show {
-    max-height: 400px;
-}
-
+/* 功能按钮：一行平铺、仅图标（文字已移除，悬浮提示走 title） */
 .feature-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-    padding: 20px 16px;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+    padding: 8px 12px;
 }
 
 .feature-item {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 8px;
+    justify-content: center;
+    padding: 4px 0;
+    border-radius: var(--radius-md);
     cursor: pointer;
+    transition: background 0.15s;
+}
+
+.feature-item:hover {
+    background: var(--md-panel-icon-bg);
 }
 
 .feature-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 56px;
-    height: 56px;
-    border-radius: var(--radius-lg);
-    background: var(--md-panel-icon-bg);
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-md);
+    background: transparent;
     transition: background 0.15s;
 }
 
@@ -223,14 +176,9 @@
 }
 
 .feature-icon svg {
-    width: 28px;
-    height: 28px;
+    width: 22px;
+    height: 22px;
     fill: var(--md-panel-text);
-}
-
-.feature-label {
-    font-size: 0.75rem;
-    color: var(--md-panel-text);
 }
 
 /* --- 子面板（表情/文字特效/语音） --- */
@@ -300,28 +248,96 @@
 
 .emoji-grid {
     display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    gap: 4px;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
     padding: 8px 16px 16px;
+}
+
+/* v091: 自定义表情项（图片按钮 + hover 删除角标） */
+.emoji-item-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .emoji-item {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
-    padding: 6px;
+    width: 48px;
+    height: 48px;
+    padding: 4px;
     border: none;
     border-radius: var(--radius-sm);
     background: transparent;
-    font-size: 1.25rem;
     cursor: pointer;
     transition: background 0.12s;
 }
 
 .emoji-item:hover {
     background: var(--md-surface-container-high);
+}
+
+.emoji-item img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 4px;
+    user-select: none;
+    pointer-events: none;
+}
+
+/* 添加按钮 */
+.emoji-item.emoji-add {
+    color: var(--md-on-surface-variant);
+    border: 1px dashed var(--md-outline);
+    border-radius: var(--radius-sm);
+}
+
+.emoji-item.emoji-add:hover {
+    background: var(--md-surface-container-high);
+}
+
+.emoji-item.emoji-add svg {
+    width: 20px;
+    height: 20px;
+    fill: currentColor;
+    pointer-events: none;
+}
+
+/* 删除角标（hover 显示） */
+.emoji-del {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: none;
+    border-radius: 50%;
+    background: var(--md-error);
+    color: var(--md-on-error);
+    font-size: 0.6875rem;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s;
+}
+
+.emoji-item-wrap:hover .emoji-del {
+    opacity: 1;
+}
+
+/* 空态提示 */
+.emoji-empty {
+    grid-column: 1 / -1;
+    padding: 20px 0 4px;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--md-on-surface-variant);
 }
 
 /* 文字特效子面板 */

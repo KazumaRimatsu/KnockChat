@@ -106,9 +106,13 @@
 
         // 优先命中缓存；未命中则拉取并缓存。均失败返回 null
         async function getCachedImageUrl(url) {
-            const hit = await cachedImageUrl(url);
+            // 统一把（可能已过期/换 AK 失效的）预签名链接还原为公开直链，
+            // 保证缓存键与拉取 URL 一致、且对象可被公共读直接访问（see other.js mediaUrlToPublic）
+            const norm = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
+            if (!norm) return null;
+            const hit = await cachedImageUrl(norm);
             if (hit) return hit;
-            return fetchAndCacheImage(url);
+            return fetchAndCacheImage(norm);
         }
 
         // v073：运行期淘汰 —— 写入后检查条数，超限时按最旧增量删除

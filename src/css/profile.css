@@ -118,6 +118,20 @@
     padding: 16px 20px 0;
 }
 
+/* v090: 昵称与 UID 同行（参考 QQ 资料页：昵称大字 + 右侧灰色小字 UID） */
+.ud-name-line {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.ud-uid {
+    font-size: 0.8125rem;
+    color: var(--md-on-surface-variant);
+    white-space: nowrap;
+}
+
 .ud-username {
     font-size: 1.5rem;
     font-weight: 600;

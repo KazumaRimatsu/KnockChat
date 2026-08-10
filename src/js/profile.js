@@ -80,6 +80,8 @@
         // 资料图片加载：字节优先走本地缓存（命中 objectURL，未命中拉取并写入缓存），
         // 缓存不可用/失败时回退原 url 直接加载；onOk 收到最终用于展示的 url
         function _loadProfileImage(url, onOk, onFail) {
+            // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+            url = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
             if (!url) { if (onFail) onFail(); return; }
             const load = function(finalUrl) {
                 const img = new Image();
@@ -141,6 +143,8 @@
             if (!_udTargetUser) return;
             const avatarEl = document.getElementById('udAvatar');
             const nameEl = document.getElementById('udUsername');
+            // v090: 昵称旁的 UID（参考 QQ 资料页布局）
+            const uidEl = document.getElementById('udUid');
             const statusEl = document.getElementById('udStatusText');
             const bgEl = document.getElementById('udBg');
             const infoList = document.getElementById('udInfoList');
@@ -153,6 +157,7 @@
             avatarEl.className = 'ud-avatar';
             avatarEl.textContent = '';
             nameEl.textContent = _udTargetUser;
+            if (uidEl) uidEl.textContent = '';
             statusEl.textContent = '';
             // Info list 加载动画
             infoList.innerHTML = '<div style="text-align:center;padding:40px;"><div class="md-circular-loader" style="width:32px;height:32px;margin:0 auto;"><svg viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"/></svg></div></div>';
@@ -243,6 +248,8 @@
                 }
 
                 nameEl.textContent = _udTargetUser;
+                // v090: 昵称旁显示 UID（服务端用户资料含 uid 字段）
+                if (uidEl) uidEl.textContent = profileData.uid ? ('UID ' + profileData.uid) : '';
 
                 const banned = !!profileData.banned;
                 if (banned) {
@@ -368,7 +375,9 @@
                 const cachedBg = _getBgCache(currentUser);
                 if (cachedBg) {
                     _epExistingBgUrl = cachedBg;
-                    epBg.style.backgroundImage = 'url(' + cachedBg + ')';
+                    // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+                    const cleanCachedBg = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(cachedBg) : cachedBg;
+                    if (cleanCachedBg) epBg.style.backgroundImage = 'url(' + cleanCachedBg + ')';
                 } else {
                     epBg.style.backgroundImage = '';
                 }
@@ -384,8 +393,10 @@
                         epBio.value = rpcData.bio || '';
                         const rpcBgUrl = rpcData.bg_url || '';
                         if (rpcBgUrl && rpcBgUrl !== _epExistingBgUrl) {
+                            // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+                            const cleanBgUrl = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(rpcBgUrl) : rpcBgUrl;
                             _epExistingBgUrl = rpcBgUrl;
-                            epBg.style.backgroundImage = 'url(' + rpcBgUrl + ')';
+                            if (cleanBgUrl) epBg.style.backgroundImage = 'url(' + cleanBgUrl + ')';
                             _setBgCache(currentUser, rpcBgUrl);
                         }
                     }

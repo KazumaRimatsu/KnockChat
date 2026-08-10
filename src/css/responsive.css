@@ -49,19 +49,6 @@
         min-width: 40px;
     }
 
-    .public-page .chat-bar .more-btn,
-    .private-page .chat-bar .more-btn {
-        width: 32px;
-        height: 32px;
-        min-width: 32px;
-    }
-
-    .public-page .chat-bar .more-btn svg,
-    .private-page .chat-bar .more-btn svg {
-        width: 20px;
-        height: 20px;
-    }
-
     .public-page .chat-bar .fab-send svg,
     .private-page .chat-bar .fab-send svg {
         width: 20px;

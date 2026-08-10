@@ -3,7 +3,8 @@
 """
 KnockChat 管理工具（BELL）
 ==========================
-基于 Python + tkinter 的 KnockChat 服务端管理工具，直连雨云 S3 兼容存储桶。
+基于 Python + tkinter 的 KnockChat 服务端管理工具，通过 Cloudflare Worker 管理 API 访问数据
+（不再直连云存储：S3 凭证只存在于 Worker Secret 环境变量，BELL 仅持有 API 地址与管理密钥）。
 
 功能：
   1. 用户管理：浏览用户、细分限制（登录/公聊文字/公聊媒体链接/新私聊/私聊消息/改头像背景）、
@@ -30,8 +31,7 @@ KnockChat 管理工具（BELL）
 """
 
 import argparse
-import hashlib
-import hmac
+import base64
 import json
 import os
 import queue
@@ -41,8 +41,6 @@ import time
 import tkinter as tk
 import tkinter.filedialog
 import tkinter.messagebox
-import urllib.parse
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from tkinter import ttk
 
@@ -53,19 +51,18 @@ import requests
 # ---------------------------------------------------------------------------
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_REGION = "us-east-1"  # s3-config.json 未填 region 时与 Rust 侧默认一致
 
 
 def default_config_paths():
-    """配置查找顺序：BELL/s3-config.json → 项目 src-tauri/s3-config.json"""
+    """配置查找顺序：BELL/api-config.json → BELL/s3-config.json（旧版直连配置，仅作迁移提示）"""
     return [
+        os.path.join(SCRIPT_DIR, "api-config.json"),
         os.path.join(SCRIPT_DIR, "s3-config.json"),
-        os.path.join(SCRIPT_DIR, "..", "src-tauri", "s3-config.json"),
     ]
 
 
 def load_config(path=None):
-    """加载 S3 配置；找不到时返回含空字段的 dict"""
+    """加载 Worker API 配置；找不到时返回含空字段的 dict"""
     paths = [path] if path else default_config_paths()
     for p in paths:
         if p and os.path.isfile(p):
@@ -76,8 +73,7 @@ def load_config(path=None):
                 return cfg
             except Exception:
                 continue
-    return {"endpoint": "", "region": "", "bucket": "", "access_key": "",
-            "secret_key": "", "path_style": True, "_source": ""}
+    return {"api_url": "", "admin_key": "", "_source": ""}
 
 
 def save_config(cfg, path):
@@ -86,174 +82,53 @@ def save_config(cfg, path):
 
 
 # ---------------------------------------------------------------------------
-# S3 客户端（AWS Signature V4，与 src-tauri/src/s3.rs 同算法，纯 requests 实现）
+# Worker API 客户端（经 Cloudflare Worker /admin/rpc 调用管理接口）
 # ---------------------------------------------------------------------------
 
-def _sha256_hex(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+class AdminClient:
+    """BELL 不再直连 S3：云存储凭证只存在于 Worker Secret 环境变量，
+    本工具仅通过 Worker 管理 API 访问（每个请求携带管理密钥鉴权）。"""
 
-
-def _hmac_sha256(key: bytes, data: str) -> bytes:
-    return hmac.new(key, data.encode("utf-8"), hashlib.sha256).digest()
-
-
-def _signing_key(secret: str, date: str, region: str) -> bytes:
-    k_date = _hmac_sha256(("AWS4" + secret).encode("utf-8"), date)
-    k_region = _hmac_sha256(k_date, region)
-    k_service = _hmac_sha256(k_region, "s3")
-    return _hmac_sha256(k_service, "aws4_request")
-
-
-def _sigv4_encode(s: str) -> str:
-    """AWS SigV4 UriEncode：除 A-Za-z0-9-._~ 外全部百分号编码（大写 hex）"""
-    return urllib.parse.quote(s, safe="-._~")
-
-
-def _canonical_query_str(qmap) -> str:
-    q = sorted(qmap.items())
-    return "&".join(f"{_sigv4_encode(k)}={_sigv4_encode(str(v))}" for k, v in q)
-
-
-class S3Client:
     def __init__(self, cfg: dict):
-        self.endpoint = (cfg.get("endpoint") or "").rstrip("/")
-        self.region = cfg.get("region") or DEFAULT_REGION
-        self.bucket = cfg.get("bucket") or ""
-        self.access_key = cfg.get("access_key") or ""
-        self.secret_key = cfg.get("secret_key") or ""
-        self.path_style = bool(cfg.get("path_style", True))
-        self.public_base = (cfg.get("public_base") or "").rstrip("/")
+        self.api_url = (cfg.get("api_url") or "").rstrip("/")
+        self.admin_key = cfg.get("admin_key") or ""
 
     def is_configured(self) -> bool:
-        return bool(self.endpoint and self.bucket and self.access_key and self.secret_key)
+        return bool(self.api_url and self.admin_key)
 
-    def object_url(self, key: str) -> str:
-        if self.path_style:
-            return f"{self.endpoint}/{self.bucket}/{key}"
-        return f"{self.endpoint}/{key}"
+    def rpc(self, name: str, params: dict = None, timeout: int = 600):
+        """调用 POST /admin/rpc {name, params}，返回 data；失败抛出 RuntimeError"""
+        if not self.is_configured():
+            raise RuntimeError("Worker API 未配置：请点击「设置」填写 API 地址与管理密钥")
+        try:
+            resp = requests.post(
+                f"{self.api_url}/admin/rpc",
+                json={"name": name, "params": params or {}},
+                headers={"Authorization": "Bearer " + self.admin_key},
+                timeout=(15, timeout))
+            body = resp.json()
+        except requests.RequestException as e:
+            raise RuntimeError(f"无法连接 Worker API（{self.api_url}）：{e}")
+        except ValueError:
+            raise RuntimeError(f"Worker API 响应非 JSON（HTTP {resp.status_code}）")
+        if body.get("ok"):
+            return body.get("data")
+        msg = (body.get("error") or {}).get("message") or f"HTTP {resp.status_code}"
+        raise RuntimeError(msg)
 
-    def canonical_uri(self, key: str) -> str:
-        if self.path_style:
-            return f"/{self.bucket}/{key}"
-        return f"/{key}"
-
-    def _send(self, method: str, key: str, query: dict = None, body: bytes = None,
-              extra_headers: dict = None):
-        """执行一次带 SigV4 签名的 S3 请求，返回 (status, bytes)"""
-        url = self.object_url(key)
-        parsed = urllib.parse.urlsplit(url)
-        host = parsed.hostname or ""
-
-        amz_date = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        date = amz_date[:8]
-
-        payload_hash = _sha256_hex(body if body is not None else b"")
-
-        # 规范化请求头（小写键排序）
-        headers = {"host": host, "x-amz-content-sha256": payload_hash,
-                   "x-amz-date": amz_date}
-        for k, v in (extra_headers or {}).items():
-            headers[k.lower()] = str(v)
-        canonical_headers = "".join(f"{k}:{headers[k]}\n" for k in sorted(headers))
-        signed_headers = ";".join(sorted(headers))
-
-        qmap = query or {}
-        canonical_query = _canonical_query_str(qmap)
-
-        canonical_request = "\n".join([
-            method.upper(), self.canonical_uri(key), canonical_query,
-            canonical_headers, signed_headers, payload_hash,
-        ])
-        scope = f"{date}/{self.region}/s3/aws4_request"
-        string_to_sign = "\n".join([
-            "AWS4-HMAC-SHA256", amz_date, scope,
-            _sha256_hex(canonical_request.encode("utf-8")),
-        ])
-        signature = hmac.new(
-            _signing_key(self.secret_key, date, self.region),
-            string_to_sign.encode("utf-8"), hashlib.sha256).hexdigest()
-
-        authorization = (f"AWS4-HMAC-SHA256 Credential={self.access_key}/{scope}, "
-                         f"SignedHeaders={signed_headers}, Signature={signature}")
-
-        request_url = url
-        if canonical_query:
-            request_url = f"{url}?{canonical_query}"
-
-        req_headers = {k: headers[k] for k in headers}
-        req_headers["Authorization"] = authorization
-        resp = requests.request(method.upper(), request_url, headers=req_headers,
-                                data=body if body is not None else None,
-                                timeout=(15, 120))
-        return resp.status_code, resp.content
-
-    # ---- 底层对象操作 ----
-
-    def put_object(self, key: str, body: bytes, content_type: str = "application/octet-stream"):
-        status, data = self._send("PUT", key, body=body,
-                                  extra_headers={"content-type": content_type})
-        if not (200 <= status < 300):
-            raise RuntimeError(f"PUT {key} 失败: HTTP {status} {data[:300]!r}")
-
-    def get_object(self, key: str):
-        """GET 对象；404 返回 None"""
-        status, data = self._send("GET", key)
-        if status == 200:
-            return data
-        if status == 404:
-            return None
-        raise RuntimeError(f"GET {key} 失败: HTTP {status} {data[:300]!r}")
-
-    def delete_object(self, key: str):
-        """DELETE 对象；404 视为成功"""
-        status, data = self._send("DELETE", key)
-        if not (200 <= status < 300) and status != 404:
-            raise RuntimeError(f"DELETE {key} 失败: HTTP {status} {data[:300]!r}")
-
-    def list_objects(self, prefix: str):
-        """列出前缀下全部对象（自动翻页），返回 [{key,size,last_modified}]"""
-        out = []
-        token = None
-        while True:
-            query = {"list-type": "2", "prefix": prefix}
-            if token:
-                query["continuation-token"] = token
-            status, body = self._send("GET", "", query=query)
-            if status != 200:
-                raise RuntimeError(f"list_objects({prefix}) 失败: HTTP {status} {body[:300]!r}")
-            try:
-                root = ET.fromstring(body)
-            except ET.ParseError as e:
-                raise RuntimeError(f"list_objects({prefix}) XML 解析失败: {e}")
-            ns = re.match(r"\{.*\}", root.tag)
-            ns = ns.group(0) if ns else ""
-            for c in root.iter(f"{ns}Contents"):
-                key = c.findtext(f"{ns}Key") or ""
-                size = int(c.findtext(f"{ns}Size") or 0)
-                lm = c.findtext(f"{ns}LastModified") or ""
-                out.append({"key": key, "size": size, "last_modified": lm})
-            truncated = (root.findtext(f"{ns}IsTruncated") or "").strip() == "true"
-            nxt = root.findtext(f"{ns}NextContinuationToken") or ""
-            if not truncated or not nxt:
-                break
-            token = nxt
-            if len(out) > 20000:
-                break  # 安全上限
-        return out
-
-    def get_json(self, key: str):
-        """GET 并解析 JSON；不存在返回 None"""
-        data = self.get_object(key)
-        if data is None:
-            return None
-        return json.loads(data.decode("utf-8"))
-
-    def put_json(self, key: str, obj):
-        self.put_object(key, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
-                        "application/json")
-
-    def public_url(self, key: str) -> str:
-        return f"{self.public_base}/{key}" if self.public_base else ""
+    def status(self):
+        """GET /admin/status 连通性自检"""
+        try:
+            resp = requests.get(
+                f"{self.api_url}/admin/status",
+                headers={"Authorization": "Bearer " + self.admin_key},
+                timeout=15)
+            body = resp.json()
+        except Exception as e:
+            raise RuntimeError(f"连接 Worker API 失败：{e}")
+        if body.get("ok"):
+            return body["data"]
+        raise RuntimeError((body.get("error") or {}).get("message") or f"HTTP {resp.status_code}")
 
 
 # ---------------------------------------------------------------------------
@@ -261,94 +136,61 @@ class S3Client:
 # ---------------------------------------------------------------------------
 
 class Store:
-    """封装 KnockChat 存储桶的读写操作"""
+    """业务数据访问层：所有操作经 Worker 管理 API（AdminClient）完成，不再直连云存储。"""
 
-    def __init__(self, s3: S3Client):
-        self.s3 = s3
+    def __init__(self, client: AdminClient):
+        self.s3 = client  # 保留旧属性名（App 中 store.s3.is_configured() 仍可用）
         self._user_cache = {}  # uid -> user dict
+
+    def is_configured(self):
+        return self.s3.is_configured()
+
+    def rpc(self, name, params=None):
+        return self.s3.rpc(name, params)
 
     # ---- 用户 ----
 
     def list_users(self, refresh=False):
-        """枚举 users/ 前缀，返回用户 dict 列表（过滤索引文件）"""
+        """返回用户 dict 列表（按 uid 排序）"""
         if self._user_cache and not refresh:
             return list(self._user_cache.values())
-        metas = self.s3.list_objects("users/")
-        keys = [m["key"] for m in metas
-                if m["key"].startswith("users/") and m["key"].endswith(".json")
-                and m["key"] not in ("users/_index.json", "users/_meta.json")
-                and "/by_name/" not in m["key"]]
-        users = []
-        for k in keys:
-            try:
-                uid = int(os.path.basename(k)[:-5])
-            except ValueError:
-                continue
-            obj = self.s3.get_json(k)
-            if obj:
-                users.append(obj)
-        users.sort(key=lambda u: u.get("uid", 0))
+        data = self.rpc("list_users", {"limit": 20000, "offset": 0})
+        users = data.get("users") or []
         self._user_cache = {u.get("uid"): u for u in users}
         return users
 
     def get_user(self, uid):
         if uid in self._user_cache:
             return self._user_cache[uid]
-        obj = self.s3.get_json(f"users/{uid}.json")
-        if obj:
-            self._user_cache[uid] = obj
-        return obj
+        data = self.rpc("get_user", {"uid": uid})
+        user = data.get("user")
+        if user:
+            self._user_cache[uid] = user
+        return user
 
     def get_user_by_name(self, name):
-        index = self.s3.get_json("users/_index.json") or {}
-        uid = index.get(name)
-        if isinstance(uid, (int, str)):
-            return self.get_user(int(uid))
-        return None
+        data = self.rpc("get_user_by_name", {"username": name})
+        return data.get("user")
 
     def save_user(self, user):
+        self.rpc("save_user", {"user": user})
         uid = user.get("uid", 0)
-        self.s3.put_json(f"users/{uid}.json", user)
         self._user_cache[uid] = user
 
     def kick_user_sessions(self, uid):
-        """删除该 uid 的全部登录会话（强制下线），返回删除数量"""
-        metas = self.s3.list_objects("sessions/")
-        keys = [m["key"] for m in metas
-                if m["key"].startswith("sessions/") and m["key"].endswith(".json")]
-        n = 0
-        for k in keys:
-            obj = self.s3.get_json(k)
-            if obj and obj.get("uid") == uid:
-                self.s3.delete_object(k)
-                n += 1
-        return n
+        """强制下线：删除该 uid 的全部登录会话，返回删除数量"""
+        data = self.rpc("kick_user_sessions", {"uid": uid})
+        return data.get("deleted", 0)
 
     # ---- 公聊消息 ----
 
     def list_public_messages(self, limit=800):
-        """返回最新 limit 条公聊消息（字典序即时间序）"""
-        metas = self.s3.list_objects("public/messages/")
-        keys = [m["key"] for m in metas
-                if m["key"].startswith("public/messages/") and m["key"].endswith(".json")]
-        keys.sort()
-        keys = keys[-limit:]
-        out = []
-        for k in keys:
-            obj = self.s3.get_json(k)
-            if obj:
-                obj["_key"] = k
-                out.append(obj)
-        out.sort(key=lambda m: m.get("created_at", ""), reverse=True)
-        return out
+        """返回最新 limit 条公聊消息"""
+        return self.rpc("list_public_messages", {"limit": limit}) or []
 
     def delete_public_message(self, msg_id, delete_media=False):
-        key = f"public/messages/{msg_id}.json"
-        if delete_media:
-            obj = self.s3.get_json(key)
-            if obj:
-                self._delete_msg_media(obj)
-        self.s3.delete_object(key)
+        """删除消息；delete_media=True 时服务端连带删除关联媒体对象"""
+        self.rpc("delete_public_message", {"msg_id": msg_id, "delete_media": delete_media})
 
     # ---- 细分限制（restrictions） ----
 
@@ -381,30 +223,21 @@ class Store:
 
     def set_restrictions(self, uid, items, until=""):
         """设置用户细分限制。items: {name: bool}，until 为 UTC ISO 串（空=永久）。
-        勾选"登录"时同步置 banned=true，限制全清时恢复 banned=false。"""
-        user = self.get_user(uid)
-        if not user:
+        勾选"登录"时服务端同步置 banned=true，限制全清时恢复 banned=false。"""
+        if not self.get_user(uid):
             raise RuntimeError(f"用户 {uid} 不存在")
-        res = dict(user.get("restrictions") or {})
-        for name, on in items.items():
-            if on:
-                res[name] = {"enabled": True, "until": until}
-            else:
-                res.pop(name, None)
-        user["restrictions"] = res
-        user["banned"] = bool(res.get("login"))
-        self.save_user(user)
-        return user
+        self.rpc("set_restrictions", {"uid": uid, "items": items, "until": until})
+        # 刷新缓存（服务端已同步 banned 与限制）
+        self._user_cache.pop(uid, None)
+        return self.get_user(uid)
 
     def clear_restrictions(self, uid):
         """解除全部限制（含 banned）"""
-        user = self.get_user(uid)
-        if not user:
+        if not self.get_user(uid):
             raise RuntimeError(f"用户 {uid} 不存在")
-        user["restrictions"] = {}
-        user["banned"] = False
-        self.save_user(user)
-        return user
+        self.rpc("clear_restrictions", {"uid": uid})
+        self._user_cache.pop(uid, None)
+        return self.get_user(uid)
 
     # ---- 媒体 ----
 
@@ -416,100 +249,34 @@ class Store:
     }
 
     def list_media(self, prefix):
-        """列出前缀下全部媒体对象（prefix 为下拉框显示文本，统一映射为真实前缀）"""
-        prefixes = self.MEDIA_PREFIXES.get(prefix) or [prefix]
-        items = []
-        for p in prefixes:
-            items.extend(self.s3.list_objects(p))
-        return items
+        """列出前缀下全部媒体对象（prefix 为下拉框显示文本，服务端统一映射为真实前缀）"""
+        return self.rpc("list_media", {"prefix": prefix}) or []
 
-    @staticmethod
-    def media_key_from_url(url):
-        """从消息中的媒体 URL 提取 S3 对象 Key（media/ 开头才返回，防误删）"""
-        if not url:
-            return None
-        path = url.split("?", 1)[0]
-        try:
-            parsed = urllib.parse.urlsplit(path)
-            path = urllib.parse.unquote(parsed.path)
-        except Exception:
-            pass
-        idx = path.find("media/")
-        if idx < 0:
-            return None
-        return path[idx:]
-
-    def _delete_msg_media(self, msg):
-        """删除消息关联的媒体对象（公聊 image_url/audio_url；私聊 content 中的 URL）"""
-        urls = []
-        for f in ("image_url", "audio_url"):
-            v = msg.get(f)
-            if v:
-                urls.append(v)
-        content = msg.get("content") or msg.get("text") or ""
-        for m in re.finditer(r"https?://[^\s\"'<>]+", content):
-            urls.append(m.group(0))
-        for u in urls:
-            key = self.media_key_from_url(u)
-            if key:
-                try:
-                    self.s3.delete_object(key)
-                except Exception:
-                    pass
+    def delete_media(self, keys):
+        """批量删除媒体对象（服务端校验 media/ 前缀，防误删非媒体对象）"""
+        data = self.rpc("delete_media", {"keys": list(keys)})
+        return data.get("deleted", 0)
 
     # ---- 更新推送（客户端「检查更新」从 upd/latest.json 读取） ----
 
-    UPDATE_META_KEY = "upd/latest.json"
-
     def get_update_info(self):
-        """读取 upd/latest.json 更新元数据；不存在返回 None"""
-        return self.s3.get_json(self.UPDATE_META_KEY)
+        """读取更新元数据；不存在返回 None"""
+        data = self.rpc("get_update_info", {})
+        return data.get("update")
 
     def publish_update(self, version, filepath, notes=""):
-        """推送更新包：安装包自动命名为 upd/KnockChat_vXXX<扩展名>，并写入 upd/latest.json 元数据。
-        推送后清理：仅保留版本号最高的 3 个安装包（当前 + 前 2 个），更旧的自动删除。
+        """推送更新包：安装包 base64 经管理 API 上传（服务端写入元数据并自动清理旧版本）。
         返回 (安装包 key, 元数据 dict)。"""
-        ext = os.path.splitext(filepath)[1] or ".bin"
-        filename = f"KnockChat_v{int(version):03d}{ext}"
-        key = f"upd/{filename}"
         with open(filepath, "rb") as f:
             data = f.read()
-        sha = hashlib.sha256(data).hexdigest()
-        self.s3.put_object(key, data, "application/octet-stream")
-        meta = {
+        b64 = base64.b64encode(data).decode("ascii")
+        res = self.rpc("publish_update", {
             "version": int(version),
-            "version_tag": f"v{int(version):03d}",
-            "filename": filename,
-            "size": len(data),
-            "sha256": sha,
-            "published_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "base64": b64,
+            "filename": os.path.basename(filepath),
             "notes": notes,
-        }
-        self.s3.put_json(self.UPDATE_META_KEY, meta)
-        # 清理：保留当前 + 前 2 个版本（共 3 个）的安装包
-        self._prune_update_packages()
-        return key, meta
-
-    def _prune_update_packages(self):
-        """仅保留 upd/ 下版本号最高的 3 个 KnockChat_vXXX.* 安装包，更旧的删除"""
-        try:
-            objs = self.s3.list_objects("upd/")
-        except Exception:
-            return  # 列表失败不阻塞推送
-        versions = {}
-        for o in objs:
-            key = o["key"]
-            m = re.match(r"upd/KnockChat_v(\d+)", key)
-            if not m:
-                continue  # 跳过 upd/latest.json 等非安装包对象
-            versions.setdefault(int(m.group(1)), key)
-        if len(versions) <= 3:
-            return
-        for ver in sorted(versions, reverse=True)[3:]:
-            try:
-                self.s3.delete_object(versions[ver])
-            except Exception:
-                pass
+        })
+        return res.get("key"), res.get("meta")
 
 
 # ---------------------------------------------------------------------------
@@ -599,10 +366,10 @@ class App:
         self._queue = queue.Queue()
         self._build_ui()
         self.log(f"配置来源：{cfg.get('_source') or '未找到，请先设置'}")
-        if store.s3.is_configured():
-            self.log("S3 已配置，点击各面板的「刷新」加载数据。")
+        if store.is_configured():
+            self.log("Worker API 已配置，点击各面板的「刷新」加载数据。")
         else:
-            self.log("S3 未配置：点击右上角「设置」填写 Endpoint/Bucket/密钥。")
+            self.log("Worker API 未配置：点击右上角「设置」填写 API 地址与管理密钥。")
 
     # ---------------- UI 构建 ----------------
 
@@ -614,7 +381,7 @@ class App:
         top.pack(fill="x")
         self.status_label = ttk.Label(
             top,
-            text=f"Endpoint: {self.cfg.get('endpoint') or '-'}  Bucket: {self.cfg.get('bucket') or '-'}",
+            text=f"API: {self.cfg.get('api_url') or '-'}",
             foreground="#666")
         self.status_label.pack(side="left")
         ttk.Button(top, text="设置…", command=self.on_settings).pack(side="right")
@@ -1131,7 +898,7 @@ class App:
             return
         if not self.confirm(f"确定删除选中的 {len(keys)} 个文件吗？\n此操作不可恢复！"):
             return
-        self._bg(lambda: [self.store.s3.delete_object(k) for k in keys],
+        self._bg(lambda: self.store.delete_media(keys),
                  lambda r: self._after_delete_media(keys))
 
     def on_clear_media(self):
@@ -1141,7 +908,7 @@ class App:
             return
         if not self.confirm(f"确定清空当前范围（{self.media_prefix.get()}）下的 {len(items)} 个文件吗？\n此操作不可恢复！"):
             return
-        self._bg(lambda: [self.store.s3.delete_object(k) for k in items],
+        self._bg(lambda: self.store.delete_media(items),
                  lambda r: self._after_delete_media(items))
 
     def _after_delete_media(self, keys):
@@ -1152,10 +919,9 @@ class App:
 
     def _rebuild_store(self):
         """按当前 cfg 重建 Store，刷新状态栏并重新加载当前标签页数据"""
-        self.store = Store(S3Client(self.cfg))
+        self.store = Store(AdminClient(self.cfg))
         self.status_label.config(
-            text=f"Endpoint: {self.cfg.get('endpoint') or '-'}  "
-                 f"Bucket: {self.cfg.get('bucket') or '-'}")
+            text=f"API: {self.cfg.get('api_url') or '-'}")
         idx = self.nb.index(self.nb.select())
         if idx == 0:
             self.refresh_users()
@@ -1183,18 +949,14 @@ class App:
         # ---- 连接设置页 ----
         page = ttk.Frame(nb, padding=8)
         nb.add(page, text="连接设置")
-        fields = [("endpoint", "Endpoint", "如 https://cn-nb1.rains3.com"),
-                  ("region", "Region", "如 ap-shanghai，留空默认 us-east-1"),
-                  ("bucket", "Bucket", "存储桶名称"),
-                  ("access_key", "Access Key", ""),
-                  ("secret_key", "Secret Key", ""),
-                  ("public_base", "Public Base（可留空）", "公开读域名，如 https://xx.com/bucket")]
+        fields = [("api_url", "Worker API 地址", "如 https://knockchat-api.xxx.workers.dev"),
+                  ("admin_key", "管理密钥", "与 Worker 的 ADMIN_KEY Secret 一致")]
         vars_ = {}
         for i, (k, label, hint) in enumerate(fields):
             ttk.Label(page, text=label).grid(row=i, column=0, sticky="w", padx=8, pady=3)
             v = tk.StringVar(value=str(self.cfg.get(k) or ""))
             e = ttk.Entry(page, textvariable=v, width=46,
-                          show="*" if k in ("secret_key", "access_key") else "")
+                          show="*" if k == "admin_key" else "")
             e.grid(row=i, column=1, padx=8, pady=3, sticky="w")
             if hint:
                 ttk.Label(page, text=hint, foreground="#999").grid(row=i, column=2, padx=8, sticky="w")
@@ -1219,15 +981,16 @@ class App:
             "  python bell.py               启动图形界面\n"
             "  python bell.py --selftest    仅测试连接并统计\n"
             "\n"
-            "配置：首次使用请点击「设置」填写 S3 连接信息，保存后立即生效；\n"
-            "也可直接编辑 BELL/s3-config.json（参考 src-tauri/s3-config.json）。"
+            "配置：首次使用请点击「设置」填写 Worker API 地址与管理密钥，保存后立即生效；\n"
+            "也可直接编辑 BELL/api-config.json。\n"
+            "说明：本工具经 Cloudflare Worker 管理 API 访问数据，不持有任何云存储凭证。"
         )
         tk.Label(about, text=about_text, justify="left", anchor="w",
                  font=("", 9)).pack(anchor="w")
 
         def save():
             new = {k: v.get().strip() for k, v in vars_.items()}
-            path = os.path.join(SCRIPT_DIR, "s3-config.json")
+            path = os.path.join(SCRIPT_DIR, "api-config.json")
             save_config(new, path)
             self.cfg.update(new)
             self.cfg["_source"] = path
@@ -1253,16 +1016,22 @@ class App:
 # ---------------------------------------------------------------------------
 
 def selftest(cfg):
-    """不启动 GUI，仅验证连接并统计数据量"""
-    s3 = S3Client(cfg)
-    if not s3.is_configured():
-        print("S3 未配置。请提供 s3-config.json 或使用 --config 指定。")
+    """不启动 GUI，仅验证 Worker API 连接并统计数据量"""
+    client = AdminClient(cfg)
+    if not client.is_configured():
+        print("Worker API 未配置。请提供 api-config.json 或使用 --config 指定。")
         return 1
-    store = Store(s3)
-    print(f"Endpoint : {s3.endpoint}")
-    print(f"Bucket   : {s3.bucket}")
+    store = Store(client)
+    print(f"API : {client.api_url}")
     print("连接测试中…")
     t0 = time.time()
+    try:
+        st = client.status()
+    except RuntimeError as e:
+        print(f"连接失败：{e}")
+        return 1
+    print(f"服务端 : {st.get('endpoint')}  bucket={st.get('bucket')}  "
+          f"server_time={st.get('server_time')}  （耗时 {time.time()-t0:.1f}s）")
     users = store.list_users(refresh=True)
     print(f"用户账户        : {len(users)}  （耗时 {time.time()-t0:.1f}s）")
     for u in users[:20]:
@@ -1283,7 +1052,7 @@ def selftest(cfg):
 
 def main():
     parser = argparse.ArgumentParser(description="Bell 门铃")
-    parser.add_argument("--config", help="指定 s3-config.json 路径")
+    parser.add_argument("--config", help="指定 api-config.json 路径")
     parser.add_argument("--selftest", action="store_true", help="仅测试连接并统计，不启动 GUI")
     args = parser.parse_args()
 
@@ -1292,7 +1061,7 @@ def main():
         raise SystemExit(selftest(cfg))
 
     root = tk.Tk()
-    store = Store(S3Client(cfg))
+    store = Store(AdminClient(cfg))
     App(root, cfg, store)
     root.mainloop()
 

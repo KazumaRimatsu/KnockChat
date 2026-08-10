@@ -40,6 +40,20 @@
     white-space: nowrap;
 }
 
+/* v089: 在线时绿色高亮 */
+.app-bar .private-status.online {
+    color: #4caf50;
+}
+
+/* v089: 公聊页顶栏在线人数 */
+.app-bar .online-count {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--md-appbar-text-muted);
+    margin-left: 8px;
+    white-space: nowrap;
+}
+
 /* 圆形图标按钮基础样式（返回键与图标键共用） */
 .app-bar .back-btn,
 .icon-button {

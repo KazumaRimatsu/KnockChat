@@ -11,6 +11,9 @@
         let privateOtherUid = 0;
         let privateChatActive = false;
         let privateStatusInterval = null;
+        // v089: 实时在线用户表（username → bool，由 /ws 网关推送）+ 对方已读时间戳（会话级）
+        let _onlineUsers = {};
+        let privateOtherReadTs = '';
         let dismissedPrivacyBanners = new Set();
         try {
             dismissedPrivacyBanners = new Set(JSON.parse(localStorage.getItem(LS_KEYS.LEGACY_BANNERS) || '[]'));
@@ -21,6 +24,8 @@
         let lastPokeTime = 0;
         let currentAvatarUrl = '';
         let scrollTimeout = null;
+        // v090: 公聊新消息自动贴底（防抖，避免批量渲染/轮询时重复滚动）
+        let publicScrollTimer = null;
         let privateUnreadCounts = {};
         let publicUnread = 0;
         let privatePollTimer = null;
@@ -401,6 +406,19 @@
                 if (!nm.is_system) {
                     markPublicRead(nm.created_at);
                 }
+                // v090: 新消息渲染后自动滚动到最新处（用户上翻查看历史时除外，此时滚动按钮提示）
+                // 用防抖定时器让布局/图片占位高度生效；图片真实加载后另有 _atBottomNow 兜底滚动
+                if (!isHistory) {
+                    const pm = document.getElementById('publicMessages');
+                    if (pm && !pm._userScrolledUp) {
+                        clearTimeout(publicScrollTimer);
+                        publicScrollTimer = setTimeout(function() {
+                            if (pm._userScrolledUp) return;
+                            scrollToBottom(pm);
+                            updateScrollButton(pm);
+                        }, 50);
+                    }
+                }
             } else if (!isHistory && !isMsgFromMe(nm) && !nm.is_system) {
                 // 消息免打扰：开启时不显示红点、不播放提示音；@提及绕过免打扰
                 var isMentioned = _checkMention(nm.text || '');
@@ -425,6 +443,9 @@
         // 缓存解析前的 1px 透明占位（避免占位图提前触发 onload 隐藏加载动画）
         const _IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
         function _wrapImgWithLoader(url, extraAttrs, extraStyle) {
+            // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+            url = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
+            if (!url) return '';
             const uid = 'img_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
             const style = extraStyle || '';
             const attrs = extraAttrs || '';
@@ -442,6 +463,9 @@
         // 改为推迟到下一宏任务（渲染与 append 同在一个同步栈，setTimeout 0 必然晚于插入），
         // 替代原 50ms×40 次的空转轮询
         function _resolveCachedImage(uid, url) {
+            // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+            url = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
+            if (!url) return;
             setTimeout(function() {
                 const wrap = document.getElementById(uid);
                 if (!wrap) return; // 元素已被移除/重渲染，放弃（重渲染会再次调用）
@@ -505,9 +529,15 @@
 
         // 消息气泡构建辅助（公聊/私聊渲染共用，消除视频/文件气泡 HTML 重复）
         function buildVideoBubbleHtml(url, name) {
+            // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+            url = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
+            if (!url) return `<div class="file-msg">${escapeHtml(name || '视频')}</div>`;
             return `<div class="video-bubble" onclick="openVideoPreview('${escapeJsString(url)}')"><video src="${escapeAttr(url)}" preload="metadata" muted playsinline></video><div class="video-play-overlay"><svg viewBox="0 0 24 24" width="40" height="40" fill="#fff"><path d="M8 5v14l11-7z"/></svg></div><div class="video-name">${escapeHtml(name)}</div></div>`;
         }
         function buildFileBubbleHtml(url, name, sizeKb) {
+            // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+            url = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
+            if (!url) return `<div class="file-msg">${escapeHtml(name || '文件')}</div>`;
             const iconPath = getFileIconSvg(name);
             return `<div class="file-msg" onclick="openFilePreview('${escapeJsString(url)}', '${escapeJsString(name)}')"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">${iconPath}</svg><span>${escapeHtml(name)}${sizeKb ? ` (${escapeHtml(sizeKb)} KB)` : ''}</span></div>`;
         }
@@ -619,6 +649,17 @@
                         bubbleContent = buildFileBubbleHtml(mjFurl, mjFname, mjFsize);
                         msgType = 'file';
                     }
+                } else if (mjType === 'emoji') {
+                    // v091: 自定义表情——CQ 码引用图片 URL，渲染为 80px 表情图
+                    const mjEmojiUrl = mjAttrs.url || '';
+                    if (mjEmojiUrl) {
+                        bubbleContent = _wrapImgWithLoader(mjEmojiUrl, `onclick="previewImage('${escapeJsString(mjEmojiUrl)}')" alt="${escapeAttr(mjAttrs.name || '表情')}"`, 'width:80px;height:80px;object-fit:contain;border-radius:8px;cursor:pointer;');
+                        msgType = 'emoji';
+                        imageUrl = mjEmojiUrl;
+                    } else {
+                        bubbleContent = escapeHtml(mjAttrs.name || mjMatch[2] || '[表情]');
+                        msgType = 'text';
+                    }
                 } else {
                     bubbleContent = escapeHtml(mjMatch[2]);
                     msgType = 'text';
@@ -722,8 +763,12 @@
             `;
             const avatarElem = row.querySelector('.avatar');
             if (userAvatarCache[msg.sender]) {
-                avatarElem.style.backgroundImage = `url(${userAvatarCache[msg.sender]})`;
-                avatarElem.textContent = '';
+                // 统一把（已过期/换 AK 失效的）预签名链接还原为公开直链（see other.js mediaUrlToPublic）
+                const cleanAvatar = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(userAvatarCache[msg.sender]) : userAvatarCache[msg.sender];
+                if (cleanAvatar) {
+                    avatarElem.style.backgroundImage = `url(${cleanAvatar})`;
+                    avatarElem.textContent = '';
+                }
             }
             row.dataset.elementId = msg.id;
             // v072: 屏蔽词检测（仅公聊）——按设置选择命中的类型与处理方式；判断结果写入消息对象随缓存落盘
@@ -1003,7 +1048,8 @@
                 return;
             }
             if (text) {
-                text = cleanHtml(text);
+                // v091: 自定义表情码（mjv064 emoji）先保护再 cleanHtml，避免标签被剥离
+                text = sanitizeWithEmoji(text);
                 if (!text) {
                     showSnackbar('消息包含不安全内容');
                     return;
@@ -1732,19 +1778,61 @@
                 var username = dot.getAttribute('data-username');
                 if (!username) continue;
                 var avatar = dot.previousElementSibling;
-                // 在线状态已随 Realtime 移除；圆点仅反映服务端账号状态（封禁/注销）
+                // v089: 实时在线优先（绿点）；封禁/注销仍由服务端账号状态覆盖为灰
                 (function(d, un, av) {
+                    var apply = function() {
+                        var isOnline = !!_onlineUsers[un];
+                        d.className = isOnline ? 'av-status-dot online' : 'av-status-dot';
+                        if (av) av.style.filter = '';
+                    };
+                    apply();
                     resolveUserStatus(un).then(function(status) {
                         if (status === 'banned' || status === 'deleted') {
                             d.className = 'av-status-dot banned';
                             if (av) av.style.filter = 'grayscale(1)';
                         } else {
-                            d.className = 'av-status-dot';
-                            if (av) av.style.filter = '';
+                            apply();
                         }
                     });
                 })(dot, username, avatar);
             }
+        }
+
+        // ===== v089: 实时回调（由 realtime.js 分发）=====
+
+        // 在线人数 → 公聊顶栏
+        function __rtOnOnlineCount(count) {
+            const el = document.getElementById('publicOnlineCount');
+            if (el) el.textContent = (count > 0) ? (count + ' 人在线') : '';
+        }
+
+        // 新连接初始化：当前在线用户列表
+        function __rtOnOnlineList(users) {
+            _onlineUsers = {};
+            (users || []).forEach(function(u) {
+                if (u && u.username) _onlineUsers[u.username] = true;
+            });
+            refreshRealtimePresenceUi();
+        }
+
+        // 用户上下线
+        function __rtOnPresence(uid, username, online) {
+            if (!username) return;
+            _onlineUsers[username] = !!online;
+            refreshRealtimePresenceUi();
+        }
+
+        function refreshRealtimePresenceUi() {
+            updatePrivateListStatusDots();
+            updatePrivateChatStatus();
+        }
+
+        // 对方已读回执：本端发出的消息标记已读
+        function __rtOnRead(sessionId, uid, ts) {
+            if (sessionId && sessionId !== privateSessionId) return;
+            if (uid !== privateOtherUid) return;
+            if (ts && (!privateOtherReadTs || ts > privateOtherReadTs)) privateOtherReadTs = ts;
+            updatePrivateReadStatus(privateOtherUser);
         }
 
         async function openPrivateChat(sessionId, otherUser, otherUid) {
@@ -1756,6 +1844,14 @@
                 const sess = (window.privateSessions || []).find(x => x.id === sessionId);
                 if (sess) {
                     privateOtherUid = sess.user1_uid === currentUid ? (sess.user2_uid || 0) : (sess.user1_uid || 0);
+                }
+            }
+            // v089: 会话级已读时间戳（对方 read_by[privateOtherUid]），用于渲染时判断历史消息是否已被对方读过
+            privateOtherReadTs = '';
+            {
+                const sess = (window.privateSessions || []).find(x => x.id === sessionId);
+                if (sess && sess.read_by && privateOtherUid) {
+                    privateOtherReadTs = sess.read_by[String(privateOtherUid)] || '';
                 }
             }
             privateChatActive = true;
@@ -1818,17 +1914,24 @@
             }
         }
 
-        // v069: 标记私聊消息已读（RPC 落库）
+        // v069: 标记私聊消息已读（RPC 落库）；v089: 落库成功后发实时回执（对方在线即时收到，离线由 read_by 兜底）
         async function markPrivateMessagesRead(sessionId) {
             if (!currentUser || !sessionId) return;
             try {
-                await s3.rpc('mark_private_messages_read', {
+                const res = await s3.rpc('mark_private_messages_read', {
                     p_session_id: sessionId,
-                    p_reader: currentUser,
+                    p_reader_uid: currentUid,
                     p_session_token: getSessionToken()
                 });
+                if (res && res.data && res.data.success === false) {
+                    console.warn('[markPrivateMessagesRead]', res.data.message);
+                    return;
+                }
             } catch (e) {
                 console.warn('[markPrivateMessagesRead] RPC failed:', e);
+            }
+            if (window.rt && typeof window.rt.sendRead === 'function') {
+                window.rt.sendRead(sessionId, privateOtherUid, new Date().toISOString());
             }
         }
 
@@ -1954,6 +2057,13 @@
                     } else {
                         contentHtml = buildFileBubbleHtml(mjUrl, mjFname, fsize);
                     }
+                } else if (mjType === 'emoji') {
+                    // v091: 自定义表情——CQ 码引用图片 URL，渲染为 80px 表情图
+                    if (mjUrl) {
+                        contentHtml = _wrapImgWithLoader(mjUrl, `alt="${escapeAttr(mjAttrs.name || '表情')}" onclick="viewImage('${escapeJsString(mjUrl)}')"`, 'width:80px;height:80px;object-fit:contain;border-radius:8px;cursor:pointer;');
+                    } else {
+                        contentHtml = escapeHtml(mjAttrs.name || '[表情]');
+                    }
                 } else {
                     contentHtml = cleanHtml(actualContent);
                 }
@@ -2012,10 +2122,11 @@
                 else if (fileMatch && isSafeUrl(fileMatch[3])) { row.dataset.msgType = fileIsImage ? 'image' : (isVideoFile(fileMatch[1]) ? 'video' : 'file'); row.dataset.linkUrl = fileMatch[3] || ''; if (fileIsImage) row.dataset.imageUrl = fileMatch[3] || ''; }
                 else row.dataset.msgType = 'text';
             }
-            // v069: 自己发出的私聊消息显示已读/未读状态
+            // v069: 自己发出的私聊消息显示已读/未读状态（v089: 会话级对方已读时间戳兜底离线场景）
             let readStatus = '';
             if (isOwn) {
-                readStatus = msg.read_at ? '<span class="read-status read">已读</span>' : '<span class="read-status unread">未读</span>';
+                const otherRead = !!msg.read_at || (privateOtherReadTs && msg.created_at && msg.created_at <= privateOtherReadTs);
+                readStatus = otherRead ? '<span class="read-status read">已读</span>' : '<span class="read-status unread">未读</span>';
             }
             row.innerHTML = `
                 <div class="avatar av-${ci}" data-username="${escapeAttr(msg.sender)}" onclick="showUserProfile('${escapeJsString(msg.sender)}')">${escapeHtml(msg.sender.charAt(0).toUpperCase())}</div>
@@ -2080,7 +2191,8 @@
             const input = document.getElementById('privateMsgInput');
             let text = input.value.trim();
             if (!text && !privateReplyTarget) return;
-            text = cleanHtml(text || '');
+            // v091: 自定义表情码（mjv064 emoji）先保护再 cleanHtml，避免标签被剥离
+            text = sanitizeWithEmoji(text || '');
             if (!text && !privateReplyTarget) { showSnackbar('消息包含不安全内容'); return; }
             // 自动检测并转换 URL 为 mjv064 链接格式
             text = autoConvertUrls(text);
@@ -2192,6 +2304,7 @@
             avatarEl.style.backgroundImage = '';
             avatarEl.textContent = '...';
             document.getElementById('userProfileUsername').textContent = '加载中';
+            document.getElementById('userProfileUid').textContent = '加载中';
             document.getElementById('userProfileStatus').textContent = '加载中';
             document.getElementById('userProfileChatBtn').style.display = 'none';
             document.getElementById('userProfileViewBtn').style.display = 'none';
@@ -2210,6 +2323,7 @@
                 fillUserAvatar(avatarEl, data.username, data.avatar_url);
                 if (data.avatar_url) userAvatarCache[data.username] = data.avatar_url;
                 document.getElementById('userProfileUsername').textContent = data.username;
+                document.getElementById('userProfileUid').textContent = data.uid ? String(data.uid) : '-';
                 let statusText = '正常';
                 if (data.banned) statusText = '已封禁';
                 document.getElementById('userProfileStatus').textContent = statusText;
@@ -2224,6 +2338,7 @@
                 avatarEl.className = 'profile-avatar av-' + idx;
                 fillUserAvatar(avatarEl, name, '');
                 document.getElementById('userProfileUsername').textContent = name;
+                document.getElementById('userProfileUid').textContent = '-';
                 document.getElementById('userProfileStatus').textContent = '已注销';
                 document.getElementById('userProfileChatBtn').style.display = 'none';
                 document.getElementById('userProfileViewBtn').style.display = 'block';
@@ -2248,6 +2363,7 @@
                 avatarEl.className = 'profile-avatar av-' + idx;
                 fillUserAvatar(avatarEl, username, '');
                 document.getElementById('userProfileUsername').textContent = username;
+                document.getElementById('userProfileUid').textContent = '-';
                 document.getElementById('userProfileStatus').textContent = '未知';
                 document.getElementById('userProfileChatBtn').style.display = 'none';
                 document.getElementById('userProfileViewBtn').style.display = 'block';

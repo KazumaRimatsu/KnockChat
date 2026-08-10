@@ -350,25 +350,17 @@
         function togglePublicNotify() { return toggleNotifyMode('publicEnabled', '公共聊天消息提示音已开启', '公共聊天消息提示音已关闭'); }
         function togglePrivateNotify() { return toggleNotifyMode('privateEnabled', '私聊消息提示音已开启', '私聊消息提示音已关闭'); }
 
-        // 功能面板控制器工厂：公聊/私聊的「更多」面板、子面板（表情/文字特效/语音）、
+        // 功能面板控制器工厂：公聊/私聊的常驻功能条、子面板（表情/文字特效/语音）、
         // 表情插入、文字特效、图片/文件选择入口共用同一套逻辑，仅元素 id 与差异项不同。
+        // v090: 面板常驻平铺（桌面端），不再需要「+」按钮的展开/收起；closePanel 仅保留
+        // 关闭子面板语义，moreBtn 已移除故做空值保护。
         function createFeaturePanelController(cfg) {
             const el = id => document.getElementById(id);
             return {
-                togglePanel: function() {
-                    const panel = el(cfg.panelId);
-                    const btn = el(cfg.moreBtnId);
-                    if (panel.classList.contains('show')) {
-                        panel.classList.remove('show');
-                        btn.classList.remove('active');
-                    } else {
-                        panel.classList.add('show');
-                        btn.classList.add('active');
-                    }
-                },
                 closePanel: function() {
                     el(cfg.panelId).classList.remove('show');
-                    el(cfg.moreBtnId).classList.remove('active');
+                    const btn = el(cfg.moreBtnId);
+                    if (btn) btn.classList.remove('active');
                     this.closeSubPanel();
                 },
                 closeSubPanel: function() {
@@ -397,6 +389,8 @@
                 openEmojiSubPanel: function() {
                     el(cfg.featurePanelMainId).style.display = 'none';
                     el(cfg.emojiSubPanelId).classList.add('active');
+                    // v091: 每次打开面板刷新自定义表情（新增/删除后保证最新）
+                    loadEmojiList(true);
                 },
                 openTextEffectSubPanel: function() {
                     el(cfg.featurePanelMainId).style.display = 'none';
@@ -408,10 +402,6 @@
                 },
                 applyTextEffect: function(tag) {
                     applyTextEffectTo(el(cfg.inputId), cfg.toggleSendBtn, tag);
-                },
-                initEmojiPicker: function(insertFnName) {
-                    el(cfg.emojiGridId).innerHTML = EMOJIS.map(e =>
-                        `<button class="emoji-item" onclick="${insertFnName}('${e}')">${e}</button>`).join('');
                 }
             };
         }
@@ -422,7 +412,7 @@
             emojiSubPanelId: 'emojiSubPanel', textEffectSubPanelId: 'textEffectSubPanel', voiceSubPanelId: 'voiceSubPanel',
             emojiGridId: 'emojiGrid', inputId: 'publicMsgInput',
             imageInputId: 'imageInput', fileInputId: 'fileInput',
-            recorder: publicRecorder, closePanelOnPick: true,
+            recorder: publicRecorder, closePanelOnPick: false,
             toggleSendBtn: togglePublicSendBtn
         });
         const privatePanelCtrl = createFeaturePanelController({
@@ -436,7 +426,6 @@
         });
 
         // 保留原全局函数名（index.html 内联 onclick 依赖）
-        function toggleFeaturePanel() { publicPanelCtrl.togglePanel(); }
         function closeFeaturePanel() { publicPanelCtrl.closePanel(); }
         function openImagePicker() { publicPanelCtrl.openImagePicker(); }
         function openFilePicker() { publicPanelCtrl.openFilePicker(); }
@@ -446,9 +435,7 @@
         function openVoiceSubPanel() { publicPanelCtrl.openVoiceSubPanel(); }
         function closeSubPanel() { publicPanelCtrl.closeSubPanel(); }
         function applyTextEffect(tag) { publicPanelCtrl.applyTextEffect(tag); }
-        function initEmojiPicker() { publicPanelCtrl.initEmojiPicker('insertEmoji'); }
 
-        function togglePrivateFeaturePanel() { privatePanelCtrl.togglePanel(); }
         function privateCloseSubPanel() { privatePanelCtrl.closeSubPanel(); }
         function privateOpenImagePicker() { privatePanelCtrl.openImagePicker(); }
         function privateOpenFilePicker() { privatePanelCtrl.openFilePicker(); }
@@ -457,7 +444,152 @@
         function privateOpenTextEffectSubPanel() { privatePanelCtrl.openTextEffectSubPanel(); }
         function privateOpenVoiceSubPanel() { privatePanelCtrl.openVoiceSubPanel(); }
         function privateApplyTextEffect(tag) { privatePanelCtrl.applyTextEffect(tag); }
-        function initPrivateEmojiPicker() { privatePanelCtrl.initEmojiPicker('privateInsertEmoji'); }
+
+        // ==================== 自定义表情（v091） ====================
+        // 用户级表情：上限 64，图片存 media/emoji/{uid}/（不在群文件白名单内，群文件不显示）。
+        // 消息协议：mjv064 emoji 码（CQ 码）与图片文件分开——发送文本只含 CQ 码引用 URL，
+        // 渲染端解析 CQ 码展示图片；会话预览（getMjV064Preview）归为 [表情]。
+        const EMOJI_LIMIT = 64;
+        let _emojiList = null; // null = 未加载
+        let _emojiLoading = false;
+
+        // 表情 CQ 码：<mjv064 type="emoji" name="..." url="...">[表情]</mjv064>
+        function _wrapEmojiCq(e) {
+            return '<mjv064 type="emoji" name="' + escapeHtml(e.name || '表情') + '" url="' + escapeHtml(e.url) + '">[表情]</mjv064>';
+        }
+
+        // v091: 发送前保护 mjv064 表情码不被 cleanHtml 剥离（白名单无 mjv064 标签），
+        // 用控制字符占位，cleanHtml 还原后再交给 autoConvertUrls（其遇 <mjv064 会跳过 URL 转换）
+        function sanitizeWithEmoji(text) {
+            const saved = [];
+            let t = String(text || '');
+            t = t.replace(/<mjv064 type="emoji"([\s\S]*?)<\/mjv064>/g, function(m) {
+                saved.push(m);
+                return '\u0001MJE' + (saved.length - 1) + '\u0001';
+            });
+            t = cleanHtml(t);
+            t = t.replace(/\u0001MJE(\d+)\u0001/g, function(m, i) { return saved[parseInt(i, 10)] || ''; });
+            return t;
+        }
+
+        async function loadEmojiList(force) {
+            if (_emojiLoading) return;
+            if (!force && _emojiList) { renderEmojiGrids(); return; }
+            if (!currentUid) return;
+            _emojiLoading = true;
+            try {
+                const { data, error } = await s3.rpc('list_emoji', { p_uid: currentUid, p_session_token: getSessionToken() });
+                _emojiList = (!error && Array.isArray(data)) ? data : [];
+            } catch (e) {
+                _emojiList = _emojiList || [];
+            }
+            _emojiLoading = false;
+            renderEmojiGrids();
+        }
+
+        function renderEmojiGrids() {
+            renderEmojiGrid('emojiGrid', 'insertEmoji');
+            renderEmojiGrid('privateEmojiGrid', 'privateInsertEmoji');
+        }
+
+        function renderEmojiGrid(gridId, insertFnName) {
+            const grid = document.getElementById(gridId);
+            if (!grid) return;
+            const list = _emojiList || [];
+            let html = '';
+            for (const e of list) {
+                const cq = _wrapEmojiCq(e);
+                html += '<div class="emoji-item-wrap" title="' + escapeAttr(e.name || '表情') + '">'
+                    + '<button class="emoji-item" onclick="' + insertFnName + '(\'' + escapeJsString(cq) + '\')">'
+                    + '<img src="' + escapeAttr(e.url) + '" alt="[表情]" loading="lazy"></button>'
+                    + '<button class="emoji-del" onclick="deleteEmoji(\'' + escapeJsString(e.key) + '\')" title="删除表情">✕</button>'
+                    + '</div>';
+            }
+            const atLimit = list.length >= EMOJI_LIMIT;
+            html += '<div class="emoji-item-wrap">'
+                + '<button class="emoji-item emoji-add"' + (atLimit ? '' : ' onclick="pickEmojiUpload()"') + ' title="'
+                + (atLimit ? '已达上限 ' + EMOJI_LIMIT + ' 个' : '添加表情') + '">'
+                + '<svg viewBox="0 0 24 24"><use href="#icon-plus" xlink:href="#icon-plus"/></svg></button></div>';
+            if (list.length === 0) {
+                html = '<div class="emoji-empty">暂无自定义表情，点击右下 + 添加</div>' + html;
+            }
+            grid.innerHTML = html;
+        }
+
+        function pickEmojiUpload() {
+            if (!_emojiList || _emojiList.length >= EMOJI_LIMIT) {
+                showSnackbar('表情数量已达上限（' + EMOJI_LIMIT + ' 个）');
+                return;
+            }
+            document.getElementById('emojiUploadInput').click();
+        }
+
+        // v091: 判断图片是否超过指定边长（表情上传用：小图直接传原文件，避免 JPEG 重编码丢透明）
+        function _emojiNeedsCompress(file, maxEdge) {
+            return new Promise(function(resolve) {
+                let url = null;
+                try { url = URL.createObjectURL(file); } catch (e) { resolve(false); return; }
+                const img = new Image();
+                img.onload = function() { URL.revokeObjectURL(url); resolve(img.width > maxEdge || img.height > maxEdge); };
+                img.onerror = function() { URL.revokeObjectURL(url); resolve(false); };
+                img.src = url;
+            });
+        }
+
+        async function handleEmojiUpload(event) {
+            const files = Array.from(event.target.files || []);
+            event.target.value = '';
+            if (files.length === 0) return;
+            for (const file of files) {
+                if (_emojiList && _emojiList.length >= EMOJI_LIMIT) {
+                    showSnackbar('表情已达上限（' + EMOJI_LIMIT + ' 个）');
+                    break;
+                }
+                const sizeErr = fileSizeError(file, 2 * 1024 * 1024, '表情图片');
+                if (sizeErr) { showSnackbar(sizeErr); continue; }
+                try {
+                    // v091: GIF 保留动画直接上传（2MB 内）；其他格式仅当超过 400px 时压缩，
+                    // 小表情保持原文件，保留透明通道与原始细节
+                    const isGif = file.type === 'image/gif';
+                    let blob = file;
+                    if (!isGif && await _emojiNeedsCompress(file, 400)) {
+                        blob = await compressImage(file, 400, 0.9);
+                    }
+                    const b64 = await blobToBase64(blob);
+                    const { data, error } = await s3.rpc('upload_emoji', {
+                        p_uid: currentUid,
+                        p_session_token: getSessionToken(),
+                        p_base64: b64,
+                        p_content_type: (file.type && file.type.indexOf('image/') === 0) ? file.type : 'image/png'
+                    });
+                    if (error) { showSnackbar('表情上传失败: ' + error.message); break; }
+                    if (data && data.success === false) { showSnackbar(data.message || '表情上传失败'); break; }
+                } catch (e) {
+                    showSnackbar('表情上传失败: ' + (e.message || ''));
+                    break;
+                }
+            }
+            _emojiList = null;
+            await loadEmojiList(true);
+        }
+
+        function deleteEmoji(key) {
+            if (!key) return;
+            showConfirm('删除表情', '确定删除该表情吗？', async function() {
+                try {
+                    const { data, error } = await s3.rpc('delete_emoji', {
+                        p_uid: currentUid, p_session_token: getSessionToken(), p_key: key
+                    });
+                    if (error) { showSnackbar('删除失败: ' + error.message); return; }
+                    if (data && data.success === false) { showSnackbar(data.message || '删除失败'); return; }
+                    _emojiList = null;
+                    await loadEmojiList(true);
+                    showSnackbar('表情已删除');
+                } catch (e) {
+                    showSnackbar('删除失败: ' + (e.message || ''));
+                }
+            });
+        }
 
         // 图片选择事件（公聊/私聊共用，isPrivate 区分发送目标）
         async function handleImageSelect(event, isPrivate) {
@@ -489,78 +621,91 @@
             // v086: 上传+发送期间发送按钮禁用并显示加载动画（公聊/私聊各自按钮）
             const sendBtnId = isPrivate ? 'privateSendBtn' : 'publicSendBtn';
             setSendState(sendBtnId, true);
-
-            // v069: 逐张压缩 + 上传，单张失败跳过继续（不整批中止）；GIF 跳过压缩保留动画
-            const imageUrls = [];
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                const isGif = file.type === 'image/gif' || (file.name.split('.').pop() || '').toLowerCase() === 'gif';
-                let blobToUpload = file;
-                // 未压缩时保留原扩展名/类型；压缩或 GIF 时使用对应格式
-                let ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-                let contentType = file.type || 'image/jpeg';
-                if (isGif) {
-                    ext = 'gif';
-                    contentType = 'image/gif';
-                } else if (file.size > COMPRESS_THRESHOLD) {
+            // v089: try/finally 兜底——无论压缩/上传/发送环节是否抛错或挂起（配合 s3.rpc 超时保护），
+            // 发送按钮最终必定恢复，杜绝「发送中」动画一直转圈
+            try {
+                // v069: 逐张压缩 + 上传，单张失败跳过继续（不整批中止）；GIF 跳过压缩保留动画
+                const imageUrls = [];
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    const isGif = file.type === 'image/gif' || (file.name.split('.').pop() || '').toLowerCase() === 'gif';
+                    let blobToUpload = file;
+                    // 未压缩时保留原扩展名/类型；压缩或 GIF 时使用对应格式
+                    let ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+                    let contentType = file.type || 'image/jpeg';
+                    if (isGif) {
+                        ext = 'gif';
+                        contentType = 'image/gif';
+                    } else if (file.size > COMPRESS_THRESHOLD) {
+                        try {
+                            blobToUpload = await compressImage(file, 1920, 0.7);
+                            ext = 'jpg';
+                            contentType = 'image/jpeg';
+                        } catch (e) {
+                            console.warn('[v069] 图片压缩失败，使用原图:', e);
+                        }
+                    }
+                    // 压缩/GIF 后最终 blob 二次校验（先校验再上传）
+                    const finalErr = fileSizeError(blobToUpload, MAX_IMAGE_SIZE, `图片 ${file.name}（压缩后）`);
+                    if (finalErr) { showSnackbar(finalErr); continue; }
+                    const filePath = (isPrivate ? `private/${privateSessionId}/` : 'chat/') + `${Date.now()}-${generateId()}-${i}.${ext}`;
                     try {
-                        blobToUpload = await compressImage(file, 1920, 0.7);
-                        ext = 'jpg';
-                        contentType = 'image/jpeg';
+                        const url = await uploadToBucket(filePath, blobToUpload, contentType);
+                        if (url) imageUrls.push(url);
+                        else console.warn('[v069] 图片上传失败，跳过该张:', file.name);
                     } catch (e) {
-                        console.warn('[v069] 图片压缩失败，使用原图:', e);
+                        console.warn('[v069] 图片上传失败，跳过该张:', e);
                     }
                 }
-                // 压缩/GIF 后最终 blob 二次校验（先校验再上传）
-                const finalErr = fileSizeError(blobToUpload, MAX_IMAGE_SIZE, `图片 ${file.name}（压缩后）`);
-                if (finalErr) { showSnackbar(finalErr); continue; }
-                const filePath = (isPrivate ? `private/${privateSessionId}/` : 'chat/') + `${Date.now()}-${generateId()}-${i}.${ext}`;
-                try {
-                    const url = await uploadToBucket(filePath, blobToUpload, contentType);
-                    if (url) imageUrls.push(url);
-                    else console.warn('[v069] 图片上传失败，跳过该张:', file.name);
-                } catch (e) {
-                    console.warn('[v069] 图片上传失败，跳过该张:', e);
+                if (imageUrls.length === 0) {
+                    showSnackbar('没有成功上传的图片');
+                    return;
                 }
-            }
-            if (imageUrls.length === 0) {
-                showSnackbar('没有成功上传的图片');
+
+                let text = '';
+                if (imageUrls.length === 1) {
+                    text = isPrivate ? `![](${imageUrls[0]})` : '';
+                } else {
+                    text = imageUrls.map(url => `![](${url})`).join('\n');
+                    text = '🖼️ ' + text;
+                }
+
+                if (isPrivate) {
+                    try {
+                        const newMsg = await safeInsertPrivateMsg(privateSessionId, currentUser, text);
+                        appendPrivateMsgLocally(newMsg, true);
+                    } catch (ie) {
+                        const msg = ie.message || '';
+                        showSnackbar(msg.includes('隐私') || msg.includes('拒收') ? msg : '发送失败: ' + msg);
+                    }
+                } else {
+                    const payload = {
+                        sender: currentUser,
+                        text: text,
+                        image_url: imageUrls[0],
+                        msg_version: APP_VERSION,
+                        is_system: false
+                    };
+                    const result = await sendPublicMessageSecure(payload);
+                    if (!result.success) {
+                        showSnackbar('发送图片失败: ' + (result.message || ''));
+                    } else if (result.message) {
+                        // v089: 服务端已落库，立即本地渲染并计入缓存（不等下一轮轮询）
+                        handlePublicMessage(result.message);
+                        updatePublicEntry();
+                        // v090: 自己刚发送的消息强制滚动到视野（与文本发送路径一致）
+                        const mContainer = document.getElementById('publicMessages');
+                        if (mContainer) {
+                            scrollToBottom(mContainer);
+                            updateScrollButton(mContainer);
+                            mContainer._userScrolledUp = false;
+                        }
+                    }
+                }
+            } finally {
                 setSendState(sendBtnId, false);
                 if (isPrivate) togglePrivateSendBtn(); else togglePublicSendBtn();
-                return;
             }
-
-            let text = '';
-            if (imageUrls.length === 1) {
-                text = isPrivate ? `![](${imageUrls[0]})` : '';
-            } else {
-                text = imageUrls.map(url => `![](${url})`).join('\n');
-                text = '🖼️ ' + text;
-            }
-
-            if (isPrivate) {
-                try {
-                    const newMsg = await safeInsertPrivateMsg(privateSessionId, currentUser, text);
-                    appendPrivateMsgLocally(newMsg, true);
-                } catch (ie) {
-                    const msg = ie.message || '';
-                    showSnackbar(msg.includes('隐私') || msg.includes('拒收') ? msg : '发送失败: ' + msg);
-                }
-            } else {
-                const payload = {
-                    sender: currentUser,
-                    text: text,
-                    image_url: imageUrls[0],
-                    msg_version: APP_VERSION,
-                    is_system: false
-                };
-                const result = await sendPublicMessageSecure(payload);
-                if (!result.success) {
-                    showSnackbar('发送图片失败: ' + (result.message || ''));
-                }
-            }
-            setSendState(sendBtnId, false);
-            if (isPrivate) togglePrivateSendBtn(); else togglePublicSendBtn();
         }
 
         // 剪贴板粘贴图片直接发送
@@ -603,28 +748,39 @@
             }
         }
 
+        // v089: 压缩永不挂起——解码失败/画布异常/toBlob 为空时一律回退原图，
+        // 防止 Promise 永不 resolve 导致「发送中」按钮一直转圈
         function compressImage(file, maxSize, quality) {
             return new Promise((resolve) => {
+                const fallback = () => { console.warn('[v089] 图片压缩失败，使用原图'); resolve(file); };
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     const img = new Image();
                     img.onload = () => {
-                        let w = img.width,
-                            h = img.height;
-                        if (w > maxSize || h > maxSize) {
-                            if (w > h) { h = h * maxSize / w;
-                                w = maxSize; } else { w = w * maxSize / h;
-                                h = maxSize; }
+                        try {
+                            let w = img.width,
+                                h = img.height;
+                            if (w > maxSize || h > maxSize) {
+                                if (w > h) { h = h * maxSize / w;
+                                    w = maxSize; } else { w = w * maxSize / h;
+                                    h = maxSize; }
+                            }
+                            const canvas = document.createElement('canvas');
+                            canvas.width = w;
+                            canvas.height = h;
+                            const ctx = canvas.getContext('2d');
+                            if (!ctx) { fallback(); return; }
+                            ctx.drawImage(img, 0, 0, w, h);
+                            canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', quality);
+                        } catch (err) {
+                            console.warn('[v089] 图片压缩异常，使用原图:', err);
+                            resolve(file);
                         }
-                        const canvas = document.createElement('canvas');
-                        canvas.width = w;
-                        canvas.height = h;
-                        const ctx = canvas.getContext('2d');
-                        ctx.drawImage(img, 0, 0, w, h);
-                        canvas.toBlob((blob) => resolve(blob), 'image/jpeg', quality);
                     };
+                    img.onerror = fallback;
                     img.src = e.target.result;
                 };
+                reader.onerror = fallback;
                 reader.readAsDataURL(file);
             });
         }
@@ -640,20 +796,19 @@
             setSendState('publicSendBtn', true);
             const ext = file.name.split('.').pop() || 'file';
             const filePath = `public/${Date.now()}-${generateId()}.${ext}`;
+            // v089: try/finally 兜底——无论上传/发送是否抛错或挂起，发送按钮都必须恢复
             try {
                 const url = await uploadToBucket(filePath, file, file.type || 'application/octet-stream');
-                if (!url) {
-                    setSendState('publicSendBtn', false);
-                    togglePublicSendBtn();
-                    return;
-                }
+                if (!url) return;
                 const fileSize = (file.size / 1024).toFixed(1);
                 const fileText = buildFileText(file.name, fileSize, url);
                 const ieResult = await sendPublicMessageSecure({ text: fileText, is_system: false });
                 if (!ieResult.success) showSnackbar('发送文件失败: ' + (ieResult.message || ''));
             } catch (e) { showSnackbar('上传失败'); }
-            setSendState('publicSendBtn', false);
-            togglePublicSendBtn();
+            finally {
+                setSendState('publicSendBtn', false);
+                togglePublicSendBtn();
+            }
         }
 
         function buildFileText(filename, fileSize, url) {

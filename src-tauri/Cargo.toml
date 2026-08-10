@@ -23,17 +23,3 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-# ==== S3（雨云存储桶 / AWS S3 兼容 API）后端依赖 ====
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-tokio = { version = "1", features = ["time", "macros", "rt-multi-thread"] }
-futures = "0.3"
-hmac = "0.12"
-sha2 = "0.10"
-hex = "0.4"
-base64 = "0.22"
-chrono = { version = "0.4", features = ["clock", "serde"] }
-rand = "0.8"
-regex = "1"
-# ==== 智能体 API Key 加密（AES-256-GCM，杜绝明文落盘） ====
-aes-gcm = "0.10"
-

@@ -680,12 +680,14 @@
                 document.getElementById('privatePage').classList.remove('active');
                 document.getElementById('searchPage').classList.remove('active');
                 isEntered = true;
+                // v089: 建立实时连接（在线人数/在线状态/已读回执）；失败不阻塞主流程，内部会退避重连
+                try { window.rt.connect(currentUid, currentUser); } catch (e) { console.warn('[rt] connect failed:', e); }
                 hideGlobalLoading();
                 updateHomeMenu();
                 updatePublicMenu();
                 renderPrivateList();
-                initEmojiPicker();
-                initPrivateEmojiPicker();
+                // v091: 登录后预加载自定义表情（公聊/私聊表情面板共用用户级表情）
+                loadEmojiList();
                 initInteractions();
                 initPrivateInteractions();
                 initPasteImage();
@@ -1214,10 +1216,11 @@
             const statusEl = document.getElementById('privateChatStatus');
             if (!statusEl) return;
             const status = await resolveUserStatus(privateOtherUser);
-            // 在线状态已随 Realtime 移除；仅展示服务端账号状态（封禁/注销）
+            // v089: 实时在线优先（在线/离线）；封禁/注销为服务端账号状态，优先展示
             const textMap = { banned: '已封禁', deleted: '已注销' };
-            statusEl.textContent = textMap[status] || '';
-            statusEl.className = 'private-status';
+            const online = !!_onlineUsers[privateOtherUser];
+            statusEl.textContent = textMap[status] || (online ? '在线' : '离线');
+            statusEl.className = 'private-status' + (online ? ' online' : '');
         }
 
         async function loadPrivateMessages(sessionId, notifyNew) {
@@ -1281,8 +1284,6 @@
                     privateHasMore = usedCache ? false : privateMessages.length === PAGE_SIZE;
                 }
                 const c = document.getElementById('privateMessages');
-                // v08x 滚动修复：重渲染前记录是否贴底，渲染后保持贴底（避免新消息落在视野之外）
-                const wasAtBottom = isScrolledToBottom(c);
                 c.innerHTML = '';
                 privateLastDateLabel = '';
                 if (privateMessages.length > 0) {
@@ -1300,7 +1301,8 @@
                         }
                     });
                 }
-                if (wasAtBottom && c && !c._userScrolledUp) {
+                // v090: 用户未上翻时渲染后始终贴底——私聊收到新消息自动滚动到最新处
+                if (c && !c._userScrolledUp) {
                     scrollToBottom(c);
                     updateScrollButton(c);
                 }
@@ -1324,29 +1326,22 @@
             privateLoadingMore = true;
             showPrivateLoadMore(true);
             try {
-                const oldest = privateMessages[0].created_at;
+                // v096: 服务端支持 p_before_id 游标分页，直接取更早一页，
+                // 不再放大 p_limit 后全量过滤（长聊天记录加载为 O(页) 而非 O(累计条数)）。
+                const beforeId = privateMessages[0].id;
                 let moreMessages = null;
                 try {
-                    // RPC get_private_messages 固定返回最新 p_limit 条（无游标参数），
-                    // 通过把 limit 放大到「已加载条数 + 一页」，再按 id/时间过滤出尚未加载的更早一页。
-                    const loadedIds = new Set(privateMessages.map(m => m.id));
-                    const needLimit = Math.min(privateMessages.length + PAGE_SIZE, 1000);
                     const { data: rpcData, error: rpcError } = await s3.rpc('get_private_messages', {
                         p_session_id: sessionId,
                         p_uid: currentUid,
                         p_session_token: getSessionToken(),
-                        p_limit: needLimit
+                        p_limit: PAGE_SIZE,
+                        p_before_id: beforeId
                     });
                     if (!rpcError && rpcData && Array.isArray(rpcData)) {
-                        moreMessages = rpcData
-                            .filter(m => new Date(m.created_at) < new Date(oldest) && !loadedIds.has(m.id))
-                            .slice(0, PAGE_SIZE);
+                        moreMessages = rpcData;
                     }
                 } catch (e) { /* RPC error */ }
-                if (!moreMessages) {
-                    privateHasMore = false;
-                    return;
-                }
                 if (!moreMessages || moreMessages.length === 0) {
                     privateHasMore = false;
                     return;
@@ -1354,17 +1349,19 @@
                 const senders = [...new Set(moreMessages.map(m => m.sender))];
                 await loadUserAvatars(senders);
                 const unique = _sortMsgAsc(moreMessages).filter(m => !privateMessages.some(e => e.id === m.id));
+                if (unique.length === 0) {
+                    privateHasMore = false;
+                    return;
+                }
                 privateMessages = unique.concat(privateMessages);
                 upsertPrivateMsgCache(sessionId, privateMessages);
                 const container = document.getElementById('privateMessages');
                 const prevScrollHeight = container.scrollHeight;
                 const prevScrollTop = container.scrollTop;
-                // v073 性能优化：仅渲染新增的更早消息并批量插入，保留已渲染消息与滚动状态
+                // 仅渲染新增的更早消息并批量插入，保留已渲染消息与滚动状态
                 const frag = document.createDocumentFragment();
-                if (unique.length) {
-                    privateLastDateLabel = '';
-                    unique.forEach(m => renderPrivateMessage(m, frag));
-                }
+                privateLastDateLabel = '';
+                unique.forEach(m => renderPrivateMessage(m, frag));
                 container.insertBefore(frag, container.firstChild);
                 requestAnimationFrame(() => {
                     container.scrollTop = prevScrollTop + (container.scrollHeight - prevScrollHeight);
@@ -1580,6 +1577,10 @@
             // 清理登出后仍会运行的后台定时器
             if (privateStatusInterval) { clearInterval(privateStatusInterval); privateStatusInterval = null; }
             if (_cloudControlInterval) { clearInterval(_cloudControlInterval); _cloudControlInterval = null; }
+            // v089: 断开实时连接
+            try { if (window.rt) window.rt.disconnect(); } catch (e) {}
+            _onlineUsers = {};
+            privateOtherReadTs = '';
             localStorage.removeItem(LS_KEYS.SESSION);
             // v053: 登出时重置免打扰状态
             _mutePublic = false;

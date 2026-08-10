@@ -1,16 +1,19 @@
-/* KnockChat S3 后端桥接层：所有服务端数据访问经由 Tauri invoke 转发到 Rust 侧（s3rpc_* 命令）。
- * 凭证只存在于 src-tauri Rust 侧，前端永远接触不到 AccessKey/SecretKey。
+/* KnockChat 服务端桥接层：所有服务端数据访问经由 HTTP 调用 Cloudflare Worker API（POST /rpc）。
+ * 云存储凭证只存在于 Worker Secret 环境变量与 BELL 管理端配置，客户端（含打包 exe）不包含任何密钥。
  * 用法：
  *   const { data, error } = await s3.rpc('send_public_message_secure', { p_username, ... });
  *   const status = await s3.status();
  */
 
 window.s3 = (function() {
-    function invoke(cmd, args) {
-        if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
-            return window.__TAURI__.core.invoke(cmd, args || {});
-        }
-        return Promise.reject(new Error('Tauri 后端不可用：请通过桌面应用（KnockChat）运行本程序'));
+    // 服务端 API 地址：优先 localStorage 覆盖（cika_api_base），否则用常量 API_BASE_URL
+    function apiBase() {
+        var b = '';
+        try { b = localStorage.getItem('cika_api_base') || ''; } catch (e) {}
+        if (b && b.trim()) return b.trim().replace(/\/+$/, '');
+        return (typeof API_BASE_URL !== 'undefined' && API_BASE_URL)
+            ? String(API_BASE_URL).replace(/\/+$/, '')
+            : 'https://YOUR_WORKER_SUBDOMAIN.workers.dev';
     }
 
     // v085: 调试浮窗 RPC 日志——错误必记；成功只记"关键 RPC"或耗时超阈值的慢请求，避免轮询刷屏
@@ -62,16 +65,50 @@ window.s3 = (function() {
         } catch (e) { /* 检测失败不影响业务 */ }
     }
 
-    // 与旧 sb.rpc 返回结构一致：{ data, error }
-    async function rpc(name, params) {
+    // v089: RPC 请求超时保护——无超时的 fetch 在网络抖动/响应丢失/Worker 卡顿时会永远挂起，
+    // 调用方（如图片发送流程）await 永远不返回，导致「发送中」按钮动画一直转圈。
+    // 默认 30s；大体积 base64 上传（upload_media/upload_emoji）放宽到 120s。可传第三参覆盖。
+    var RPC_DEFAULT_TIMEOUT = 30000;
+    var RPC_MEDIA_TIMEOUT = 120000;
+
+    async function rpc(name, params, timeoutMs) {
         var t0 = Date.now();
+        var t = (typeof timeoutMs === 'number' && timeoutMs > 0) ? timeoutMs
+            : (name === 'upload_media' || name === 'upload_emoji' ? RPC_MEDIA_TIMEOUT : RPC_DEFAULT_TIMEOUT);
+        var ctrl = null;
+        var timer = null;
         try {
-            const data = await invoke('s3rpc_call', { name: name, params: params || {} });
-            logRpc(name, Date.now() - t0, null);
-            checkSessionInvalid(name, data);
-            return { data: data, error: null };
+            if (typeof AbortController !== 'undefined') {
+                ctrl = new AbortController();
+                timer = setTimeout(function() { try { ctrl.abort(); } catch (e) {} }, t);
+            }
+            try {
+                const resp = await fetch(apiBase() + '/rpc', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name, params: params || {} }),
+                    signal: ctrl ? ctrl.signal : undefined
+                });
+                let body = null;
+                try { body = await resp.json(); } catch (e) { /* 非 JSON 响应 */ }
+                // 统一结构：{ ok:true, data } | { ok:false, error:{message} }
+                if (body && body.ok === true) {
+                    const data = body.data !== undefined ? body.data : null;
+                    logRpc(name, Date.now() - t0, null);
+                    checkSessionInvalid(name, data);
+                    return { data: data, error: null };
+                }
+                const msg = (body && body.error && body.error.message) ? String(body.error.message)
+                    : (body && body.error && typeof body.error === 'string') ? body.error
+                    : ('HTTP ' + resp.status);
+                logRpc(name, Date.now() - t0, msg);
+                return { data: null, error: { message: msg } };
+            } finally {
+                if (timer) clearTimeout(timer);
+            }
         } catch (e) {
-            const msg = (e && e.message) ? String(e.message) : String(e);
+            const aborted = !!(ctrl && ctrl.signal && ctrl.signal.aborted);
+            const msg = aborted ? ('请求超时(' + (t / 1000) + 's)，请检查网络后重试') : ((e && e.message) ? String(e.message) : String(e));
             logRpc(name, Date.now() - t0, msg);
             return { data: null, error: { message: msg } };
         }
@@ -79,9 +116,30 @@ window.s3 = (function() {
 
     return {
         rpc: rpc,
-        invoke: invoke,
+        apiBase: apiBase,
+        // 服务端配置状态（连通性自检）
         status: function() {
-            return invoke('s3_status', {});
+            var ctrl = null;
+            var timer = null;
+            if (typeof AbortController !== 'undefined') {
+                ctrl = new AbortController();
+                // 状态自检加超时保护，避免 DNS/网络挂起时界面一直转圈
+                timer = setTimeout(function() { try { ctrl.abort(); } catch (e) {} }, 8000);
+            }
+            var p = fetch(apiBase() + '/status', { signal: ctrl ? ctrl.signal : undefined })
+                .then(function(resp) {
+                    return resp.json().then(function(body) {
+                        if (body && body.ok === true && body.data) return body.data;
+                        if (body && body.data) return body.data;
+                        return { configured: false, message: '服务端状态异常' };
+                    }).catch(function() {
+                        return { configured: false, message: '服务端状态异常' };
+                    });
+                })
+                .catch(function() {
+                    return { configured: false, message: '服务端不可达' };
+                });
+            return p.finally(function() { if (timer) clearTimeout(timer); });
         },
         // 获取媒体访问 URL（私有桶场景用预签名 URL；公共读桶返回直链）
         mediaUrl: function(key) {

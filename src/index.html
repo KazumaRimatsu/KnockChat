@@ -115,7 +115,7 @@
     </script>
     <script>
         /* === Global Control Flag === */
-        var IS_DEV = false;
+        var IS_DEV = true;
 
         if (!IS_DEV) {
         /* === Anti-Debugging & Security Measures (v036 - Reduced False Positives) === */
@@ -319,6 +319,7 @@
                 <div class="app-bar">
                     <div class="title-block">
                         <span class="title">公共</span>
+                        <span class="online-count" id="publicOnlineCount"></span>
                     </div>
                     <button class="icon-button" id="publicMenuBtn" onclick="togglePublicMenu()" title="菜单">
                         <svg viewBox="0 0 24 24"><use href="#icon-menu" xlink:href="#icon-menu"/></svg>
@@ -332,9 +333,6 @@
                     <button class="reply-cancel" onclick="cancelPublicReply()">✕</button>
                 </div>
                 <div class="chat-bar">
-                    <button class="more-btn" id="publicMoreBtn" onclick="toggleFeaturePanel()" title="更多功能">
-                        <svg viewBox="0 0 24 24"><use href="#icon-plus" xlink:href="#icon-plus"/></svg>
-                    </button>
                     <div class="input-container"><textarea class="msg-input" id="publicMsgInput" placeholder="按Enter发送，Ctrl/Shift+Enter换行" rows="1" oninput="autoResize(this);togglePublicSendBtn();updateMentionFromInput(this)" onkeydown="handlePublicKeyDown(event)"></textarea></div>
                     <button class="fab-send" id="publicSendBtn" onclick="sendPublicMsg()" disabled>
                         <span class="send-spinner"></span><svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
@@ -343,12 +341,12 @@
                 <div class="mention-menu" id="publicMentionMenu"></div><div class="feature-panel" id="publicFeaturePanel">
                     <div id="featurePanelMain">
                         <div class="feature-grid">
-                            <div class="feature-item" onclick="openImagePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-image" xlink:href="#icon-image"/></svg></div><span class="feature-label">图片</span></div>
-                            <div class="feature-item" onclick="openLinkDialog('public')"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-link" xlink:href="#icon-link"/></svg></div><span class="feature-label">链接</span></div>
-                            <div class="feature-item" onclick="openFilePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-file" xlink:href="#icon-file"/></svg></div><span class="feature-label">文件</span></div>
-                            <div class="feature-item" onclick="openEmojiSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-emoji" xlink:href="#icon-emoji"/></svg></div><span class="feature-label">表情</span></div>
-                            <div class="feature-item" onclick="openVoiceSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg></div><span class="feature-label">语音</span></div>
-                            <div class="feature-item" onclick="openTextEffectSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-effect" xlink:href="#icon-effect"/></svg></div><span class="feature-label">文字特效</span></div>
+                            <div class="feature-item" title="图片" onclick="openImagePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-image" xlink:href="#icon-image"/></svg></div></div>
+                            <div class="feature-item" title="链接" onclick="openLinkDialog('public')"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-link" xlink:href="#icon-link"/></svg></div></div>
+                            <div class="feature-item" title="文件" onclick="openFilePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-file" xlink:href="#icon-file"/></svg></div></div>
+                            <div class="feature-item" title="表情" onclick="openEmojiSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-emoji" xlink:href="#icon-emoji"/></svg></div></div>
+                            <div class="feature-item" title="语音" onclick="openVoiceSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg></div></div>
+                            <div class="feature-item" title="文字特效" onclick="openTextEffectSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-effect" xlink:href="#icon-effect"/></svg></div></div>
                         </div>
                     </div>
                     <div class="sub-panel" id="emojiSubPanel">
@@ -378,6 +376,7 @@
                 </div>
                 <input type="file" id="imageInput" accept="image/*" multiple style="display:none" onchange="handleImageSelect(event)">
                 <input type="file" id="fileInput" style="display:none" onchange="handleFileSelect(event)">
+                <input type="file" id="emojiUploadInput" accept="image/*" multiple style="display:none" onchange="handleEmojiUpload(event)">
             </div>
 
             <div class="page private-page" id="privatePage">
@@ -399,9 +398,6 @@
                     <button class="reply-cancel" onclick="cancelPrivateReply()">✕</button>
                 </div>
                 <div class="chat-bar">
-                    <button class="more-btn" id="privateMoreBtn" onclick="togglePrivateFeaturePanel()" title="更多功能">
-                        <svg viewBox="0 0 24 24"><use href="#icon-plus" xlink:href="#icon-plus"/></svg>
-                    </button>
                     <div class="input-container">
                         <textarea class="msg-input" id="privateMsgInput" placeholder="发送消息..." rows="1" oninput="autoResize(this);togglePrivateSendBtn()" onkeydown="handlePrivateKeyDown(event)"></textarea>
                     </div>
@@ -412,12 +408,12 @@
                 <div class="feature-panel" id="privateFeaturePanel">
                     <div id="privateFeaturePanelMain">
                         <div class="feature-grid">
-                            <div class="feature-item" onclick="privateOpenImagePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-image" xlink:href="#icon-image"/></svg></div><span class="feature-label">图片</span></div>
-                            <div class="feature-item" onclick="openLinkDialog('private')"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-link" xlink:href="#icon-link"/></svg></div><span class="feature-label">链接</span></div>
-                            <div class="feature-item" onclick="privateOpenFilePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-file" xlink:href="#icon-file"/></svg></div><span class="feature-label">文件</span></div>
-                            <div class="feature-item" onclick="privateOpenEmojiSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-emoji" xlink:href="#icon-emoji"/></svg></div><span class="feature-label">表情</span></div>
-                            <div class="feature-item" onclick="privateOpenVoiceSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg></div><span class="feature-label">语音</span></div>
-                            <div class="feature-item" onclick="privateOpenTextEffectSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-effect" xlink:href="#icon-effect"/></svg></div><span class="feature-label">文字特效</span></div>
+                            <div class="feature-item" title="图片" onclick="privateOpenImagePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-image" xlink:href="#icon-image"/></svg></div></div>
+                            <div class="feature-item" title="链接" onclick="openLinkDialog('private')"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-link" xlink:href="#icon-link"/></svg></div></div>
+                            <div class="feature-item" title="文件" onclick="privateOpenFilePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-file" xlink:href="#icon-file"/></svg></div></div>
+                            <div class="feature-item" title="表情" onclick="privateOpenEmojiSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-emoji" xlink:href="#icon-emoji"/></svg></div></div>
+                            <div class="feature-item" title="语音" onclick="privateOpenVoiceSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg></div></div>
+                            <div class="feature-item" title="文字特效" onclick="privateOpenTextEffectSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-effect" xlink:href="#icon-effect"/></svg></div></div>
                         </div>
                     </div>
                     <div class="sub-panel" id="privateEmojiSubPanel">
@@ -596,7 +592,10 @@
                     </div>
                 </div>
                 <div class="ud-name-section">
-                    <div class="ud-username" id="udUsername">-</div>
+                    <div class="ud-name-line">
+                        <div class="ud-username" id="udUsername">-</div>
+                        <div class="ud-uid" id="udUid"></div>
+                    </div>
                     <div class="ud-status-text" id="udStatusText">正常</div>
                 </div>
                 <div class="ud-divider"></div>
@@ -735,6 +734,7 @@
                 <div class="profile-avatar" id="profileDialogAvatar">U</div>
                 <div class="profile-info">
                     <div class="item"><span class="label">昵称</span><span class="value" id="profileDialogUsername">-</span></div>
+                    <div class="item"><span class="label">UID</span><span class="value" id="profileDialogUid">-</span></div>
                     <div class="item"><span class="label">身份</span><span class="value" id="profileDialogRole">-</span></div>
                     <div class="item"><span class="label">状态</span><span class="value" id="profileDialogStatus">-</span></div>
                 </div>
@@ -763,6 +763,7 @@
                 <div class="profile-avatar" id="userProfileAvatar">U</div>
                 <div class="profile-info">
                     <div class="item"><span class="label">昵称</span><span class="value" id="userProfileUsername">-</span></div>
+                    <div class="item"><span class="label">UID</span><span class="value" id="userProfileUid">-</span></div>
                     <div class="item"><span class="label">用户状态</span><span class="value" id="userProfileStatus">-</span></div>
                 </div>
                 <button class="md-button primary" id="userProfileViewBtn" onclick="openUserDetailFromProfile()" style="width:100%;padding:14px 16px;border:none;border-radius:0;font-weight:400;cursor:pointer;background:transparent;color:var(--md-primary);font-size:0.9375rem;text-align:left;border-bottom:1px solid var(--md-outline);">查看资料</button>
@@ -1073,6 +1074,8 @@
     <script src="js/s3.js"></script>
     <!-- 云端设置同步：登录后拉取云端设置、本地设置变更防抖推送 -->
     <script src="js/cloudsync.js"></script>
+    <!-- 实时层（v089）：WebSocket 在线人数/在线状态/已读回执，依赖 s3.js + api.js -->
+    <script src="js/realtime.js"></script>
     <script src="js/api.js"></script>
     <script src="js/stpwords-data.js"></script>
     <!-- 图片字节缓存：供 chat.js / profile.js / fview.js 使用 -->
