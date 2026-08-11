@@ -22,7 +22,7 @@
         const API_BASE_URL = 'https://api.cika-meow.top/';
         const HISTORY_LIMIT = 200;
         // v088: 内核版本号——关于页「内核版本」的显示来源，发布新版本时只需更新此常量
-        const KERNEL_VERSION = 100;
+        const KERNEL_VERSION = 101;
         const CC_BANNER_TITLE = '系统维护';
         const CC_BANNER_MSG = '系统正在维护，暂时无法登录。';
         const SALT = 'mjchat_2026_salt_v1';
