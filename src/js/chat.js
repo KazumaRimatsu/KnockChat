@@ -258,10 +258,6 @@
 
         let recentPrivateNotifications = {};
 
-        function notifyPrivateMsg(sessionId, sender) {
-            // 已移除实时广播：新私聊消息由轮询驱动（handlePrivateNotification 会播放提示音/红点）
-        }
-
         // 兜底通知：实时广播丢失/延迟时（网络不佳），通过广播或轮询补拉的新消息也要播放提示音
         function maybeNotifyPrivateSound(sessionId) {
             if (privateChatActive && privateSessionId === sessionId) return;
@@ -760,10 +756,15 @@
             const senderDisplay = isDeleted ? `[用户已注销] ${msg.sender}` : msg.sender;
             const senderClass = isDeleted ? 'sender deleted' : 'sender';
             const avatarClass = isDeleted ? 'avatar av-' + ci + ' deleted' : 'avatar av-' + ci;
-            // v097: 好友专属消息标记（公聊中好友发言带「好友」徽标）
-            let friendBadge = '';
-            if (!isOwn && !isDeleted && window.friendModule && typeof window.friendModule.friendBadgeHtml === 'function') {
-                friendBadge = window.friendModule.friendBadgeHtml(msg.sender);
+            // v102: 群聊消息发送者标签——群主/管理员优先显示角色标签，否则为好友徽标
+            let senderBadge = '';
+            if (!isOwn && !isDeleted) {
+                const sRole = msg.sender_role || '';
+                if (sRole === 'owner') senderBadge = '<span class="g-owner-tag">群主</span>';
+                else if (sRole === 'admin') senderBadge = '<span class="g-admin-tag">管理员</span>';
+                else if (window.friendModule && typeof window.friendModule.friendBadgeHtml === 'function') {
+                    senderBadge = window.friendModule.friendBadgeHtml(msg.sender);
+                }
             }
 
             // v101: 文本类消息的复制/翻译数据（richtext 去标签）
@@ -799,7 +800,7 @@
             row.innerHTML = `
                 <div class="${avatarClass}" data-sender="${escapeAttr(msg.sender)}" onclick="showUserProfile('${escapeJsString(msg.sender)}')">${escapeHtml(msg.sender.charAt(0).toUpperCase())}</div>
                 <div class="content">
-                    <div class="meta"><span class="${senderClass}">${escapeHtml(senderDisplay)}</span>${friendBadge}<span class="time">${time}</span></div>
+                    <div class="meta"><span class="${senderClass}">${escapeHtml(senderDisplay)}</span>${senderBadge}<span class="time">${time}</span></div>
                     <div class="${bubbleClass}">${replyHtml}${bubbleContent}</div>
                 </div>
             `;
@@ -927,8 +928,18 @@
         let mentionCandidates = [];
         let mentionFilter = '';
         let mentionSel = -1;
+        // v102: @ 候选加载防抖——连续输入 @abc 时只发一次 mention_candidates RPC
+        let mentionDebounceTimer = null;
 
         function getMentionMenu() { return document.getElementById('publicMentionMenu'); }
+
+        function scheduleMentionLoad(query) {
+            if (mentionDebounceTimer) clearTimeout(mentionDebounceTimer);
+            mentionDebounceTimer = setTimeout(function() {
+                mentionDebounceTimer = null;
+                loadMentionCandidates(query);
+            }, 250);
+        }
 
         async function updateMentionFromInput(input) {
             if (!input || input.id !== 'publicMsgInput') return;
@@ -941,13 +952,13 @@
                     if (mentionFilter !== prefix) {
                         mentionFilter = prefix;
                         mentionSel = -1;
-                        loadMentionCandidates(prefix);
+                        scheduleMentionLoad(prefix);
                     }
                 } else {
                     mentionActive = true;
                     mentionFilter = prefix;
                     mentionSel = -1;
-                    loadMentionCandidates(prefix);
+                    scheduleMentionLoad(prefix);
                 }
             } else if (mentionActive) {
                 closeMentionMenu();
@@ -1039,6 +1050,7 @@
         }
 
         function closeMentionMenu() {
+            if (mentionDebounceTimer) { clearTimeout(mentionDebounceTimer); mentionDebounceTimer = null; }
             mentionActive = false;
             mentionCandidates = [];
             mentionFilter = '';
@@ -1259,6 +1271,11 @@
         }
 
         function initMessageInteractions(messagesEl, chatType) {
+            if (!messagesEl) return;
+            // v102: 防止重复绑定——登录→登出→再登录会多次走到 init 路径，
+            // 消息区元素常驻，不加守卫会累积 contextmenu/touch/mouse 监听器
+            if (messagesEl.dataset.interactionsBound === '1') return;
+            messagesEl.dataset.interactionsBound = '1';
             const isPublic = chatType === 'public';
 
             messagesEl.addEventListener('contextmenu', (e) => {
@@ -1720,7 +1737,6 @@
                         '<div class="unread-badge" id="groupInviteBadge" style="display:none;">0</div>' +
                         '</div>';
             if (groups.length === 0 && sessions.length === 0) {
-                html += '<div class="empty">暂无会话，点击用户头像发起私聊，或在菜单中新建群聊</div>';
                 container.innerHTML = html;
                 if (window.groupModule && typeof window.groupModule.refreshInviteBadge === 'function') window.groupModule.refreshInviteBadge();
                 return;
@@ -1746,14 +1762,17 @@
             var avUrl = g.avatar_url || '';
             var avStyle = avUrl ? ' style="background-image:url(\'' + escapeAttr(sanitizeAvatarUrl(avUrl)) + '\');background-size:cover;background-position:center;"' : '';
             var avText = avUrl ? '' : escapeHtml((g.name || '群').charAt(0).toUpperCase());
-            var lastMsg = getMessagePreview(g.last_message) || '暂无消息';
+            var lastMsg = getMessagePreview(g.last_message) || '';
             var time = fmtGroupListTime(g.last_message_at);
-            var ownerTag = g.my_role === 'owner' ? '<span class="g-owner-tag">群主</span>' : '';
+            // v102: 群列表项显示己方角色（群主/管理员）
+            var roleTag = g.my_role === 'owner' ? '<span class="g-owner-tag">群主</span>'
+                : g.my_role === 'admin' ? '<span class="g-admin-tag">管理员</span>' : '';
+            var lastMsgHtml = lastMsg ? '<div class="last-msg">' + escapeHtml(lastMsg) + '</div>' : '';
             return '<div class="group-item" data-group="' + escapeAttr(g.id) + '" onclick="openGroupChat(\'' + escapeJsString(g.id) + '\')">' +
                         '<div class="av-wrap"><div class="av av-' + (hashStr(g.name || '群') % 8) + '"' + avStyle + '>' + avText + '</div></div>' +
                         '<div class="info">' +
-                            '<div class="name">' + escapeHtml(g.name || '群聊') + ownerTag + '</div>' +
-                            '<div class="last-msg">' + escapeHtml(lastMsg) + '</div>' +
+                            '<div class="name">' + escapeHtml(g.name || '群聊') + roleTag + '</div>' +
+                            lastMsgHtml +
                         '</div>' +
                         '<div class="time">' + time + '</div>' +
                         unreadBadge +
@@ -1767,7 +1786,7 @@
             var other = u1 === currentUid ? s.user2 : s.user1;
             var otherUid = u1 === currentUid ? u2 : u1;
             var idx = hashStr(other) % 8;
-            var lastMsg = getMessagePreview(s.last_message) || '暂无消息';
+            var lastMsg = getMessagePreview(s.last_message) || '';
             var time = s.updated_at ? new Date(s.updated_at).toLocaleTimeString('zh-CN', { hour: '2-digit',
                 minute: '2-digit' }) : '';
             var unread = privateUnreadCounts[s.id] || 0;
@@ -1775,6 +1794,7 @@
             var avUrl = userAvatarCache[other];
             var avStyle = avUrl ? ' style="background-image:url(\'' + escapeAttr(sanitizeAvatarUrl(avUrl)) + '\');background-size:cover;background-position:center;"' : '';
             var avText = avUrl ? '' : escapeHtml(other.charAt(0).toUpperCase());
+            var lastMsgHtml = lastMsg ? '<div class="last-msg">' + escapeHtml(lastMsg) + '</div>' : '';
             return '<div class="list-item" data-session="' + escapeAttr(s.id) + '" onclick="openPrivateChat(\'' + escapeJsString(s.id) + '\',\'' + escapeJsString(other) + '\',' + (otherUid || 0) + ')">' +
                         '<div class="av-wrap">' +
                             '<div class="av av-' + idx + '" data-username="' + escapeAttr(other) + '"' + avStyle + '>' + avText + '</div>' +
@@ -1782,16 +1802,28 @@
                         '</div>' +
                         '<div class="info">' +
                             '<div class="name">' + escapeHtml(other) + '</div>' +
-                            '<div class="last-msg">' + escapeHtml(lastMsg) + '</div>' +
+                            lastMsgHtml +
                         '</div>' +
                         '<div class="time">' + time + '</div>' +
                         unreadBadge +
                     '</div>';
         }
 
-        // 兼容旧调用点：渲染统一聊天列表
+        // v102: 列表渲染去抖——轮询周期内多个 RPC 完成后可能连续触发列表重建，
+        // 将同一窗口内的重复调用合并为一次渲染，减少全量 innerHTML 重建与状态点查询。
+        var _chatListRenderPending = false;
+        function scheduleChatListRender() {
+            if (_chatListRenderPending) return;
+            _chatListRenderPending = true;
+            setTimeout(function() {
+                _chatListRenderPending = false;
+                renderChatList();
+            }, 0);
+        }
+
+        // 兼容旧调用点：渲染统一聊天列表（经去抖调度合并）
         function renderPrivateList() {
-            renderChatList();
+            scheduleChatListRender();
         }
 
         function updatePrivateListStatusDots() {
@@ -2078,13 +2110,29 @@
             const count = document.getElementById('publicOnlineCount');
             if (title) title.textContent = (currentGroupInfo && currentGroupInfo.name) ? currentGroupInfo.name : '群聊';
             if (count) count.textContent = (currentGroupInfo && currentGroupInfo.member_count) ? currentGroupInfo.member_count + ' 人' : '';
+            // v102: 群聊页顶栏显示己方角色（群主/管理员）
+            const roleTag = document.getElementById('publicChatRoleTag');
+            const myRole = (currentGroupInfo && currentGroupInfo.my_role) || '';
+            if (roleTag) {
+                if (myRole === 'owner') {
+                    roleTag.textContent = '群主';
+                    roleTag.className = 'g-owner-tag';
+                    roleTag.style.display = '';
+                } else if (myRole === 'admin') {
+                    roleTag.textContent = '管理员';
+                    roleTag.className = 'g-admin-tag';
+                    roleTag.style.display = '';
+                } else {
+                    roleTag.style.display = 'none';
+                }
+            }
             if (typeof updatePublicMenu === 'function') updatePublicMenu();
         }
 
         // v100: 群聊列表渲染已并入统一聊天列表 renderChatList（群聊 + 私聊同容器）；
         // 保留函数名兼容旧调用点。无群聊时不渲染「暂无群聊」空态，避免列表顶部出现多余字样。
         function renderGroupList() {
-            renderChatList();
+            scheduleChatListRender();
         }
 
         // v099: 拉取群信息并刷新顶栏/菜单/列表缓存
@@ -2167,8 +2215,13 @@
         // v099: 打开群聊窗口
         async function openGroupChat(gid) {
             if (!gid) return;
-            // 同群重复点击：仅滚动到底部
+            // 同群重复点击：恢复群聊页并滚动到底部
+            // （v102 修复：从设置等其他页面点击当前群时，须先切回群聊页，否则页面停留在原页）
             if (currentGroupId === gid) {
+                switchPage('publicPage', true);
+                pushPageHistory('group');
+                updateSidebarHighlight();
+                clearGroupUnread(gid);
                 const c = document.getElementById('publicMessages');
                 if (c) scrollToBottom(c);
                 return;
@@ -2284,6 +2337,14 @@
                 myGroups = list;
                 renderGroupList();
                 updateBackBadge();
+                // v102: 同步当前群角色（被提升/降级为管理员或群主后立即刷新群菜单与页内角色标签）
+                if (currentGroupId && currentGroupInfo) {
+                    const curGroup = nowById[currentGroupId];
+                    if (curGroup && curGroup.my_role && curGroup.my_role !== currentGroupInfo.my_role) {
+                        currentGroupInfo.my_role = curGroup.my_role;
+                        updateGroupHeader();
+                    }
+                }
                 // 群邀请角标同步（group.js 提供）
                 if (window.groupModule && typeof window.groupModule.refreshInviteBadge === 'function') {
                     window.groupModule.refreshInviteBadge();
@@ -2545,7 +2606,6 @@
                     container._userScrolledUp = false;
                 }
             }
-            notifyPrivateMsg(privateSessionId, currentUser);
             loadPrivateSessions();
         }
 

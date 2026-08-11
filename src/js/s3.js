@@ -6,15 +6,20 @@
  */
 
 window.s3 = (function() {
-    // 服务端 API 地址：优先 localStorage 覆盖（cika_api_base），否则用常量 API_BASE_URL
+    // v102: API 地址内存缓存——localStorage 覆盖（cika_api_base）几乎不会在运行中变化，
+    // 避免每次 RPC 都重复读 localStorage；调试面板改动后调用 resetApiBaseCache() 刷新。
+    var _apiBaseCache = null;
     function apiBase() {
+        if (_apiBaseCache !== null) return _apiBaseCache;
         var b = '';
         try { b = localStorage.getItem('cika_api_base') || ''; } catch (e) {}
-        if (b && b.trim()) return b.trim().replace(/\/+$/, '');
-        return (typeof API_BASE_URL !== 'undefined' && API_BASE_URL)
+        if (b && b.trim()) _apiBaseCache = b.trim().replace(/\/+$/, '');
+        else _apiBaseCache = (typeof API_BASE_URL !== 'undefined' && API_BASE_URL)
             ? String(API_BASE_URL).replace(/\/+$/, '')
             : 'https://YOUR_WORKER_SUBDOMAIN.workers.dev';
+        return _apiBaseCache;
     }
+    function resetApiBaseCache() { _apiBaseCache = null; }
 
     // v085: 调试浮窗 RPC 日志——错误必记；成功只记"关键 RPC"或耗时超阈值的慢请求，避免轮询刷屏
     var RPC_IMPORTANT = {
@@ -117,6 +122,7 @@ window.s3 = (function() {
     return {
         rpc: rpc,
         apiBase: apiBase,
+        resetApiBaseCache: resetApiBaseCache,
         // 服务端配置状态（连通性自检）
         status: function() {
             var ctrl = null;

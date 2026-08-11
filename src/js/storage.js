@@ -702,10 +702,12 @@
                         last_message: s.last_message, deleted_by_user1: s.deleted_by_user1, deleted_by_user2: s.deleted_by_user2
                     };
                 }) : null;
-            const prev = JSON.stringify(_cachedSessions);
+            // v102: 只序列化一次，避免每轮轮询对同一列表做两次 stringify
+            const next = JSON.stringify(trimmed);
+            if (next === _cachedSessionsJson) return;
             _cachedSessions = trimmed;
-            // 会话列表未变化时（如轮询）不触发落盘
-            if (prev !== JSON.stringify(_cachedSessions)) scheduleMessageCacheSave();
+            _cachedSessionsJson = next;
+            scheduleMessageCacheSave();
         }
 
         function getCachedSessions() {
@@ -717,6 +719,7 @@
             _privateMsgCacheMap = {};
             _privateMsgCacheOrder = [];
             _cachedSessions = null;
+            _cachedSessionsJson = 'null';
             if (_msgCacheTimer) { clearTimeout(_msgCacheTimer); _msgCacheTimer = null; }
             if (currentUser) {
                 try { localStorage.removeItem(_msgCacheKey()); } catch (e) {}

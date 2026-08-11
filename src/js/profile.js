@@ -641,6 +641,7 @@
                 const sess = JSON.parse(localStorage.getItem(LS_KEYS.SESSION) || '{}');
                 sess.username = newName;
                 localStorage.setItem(LS_KEYS.SESSION, JSON.stringify(sess));
+                if (typeof window.invalidateSessionTokenCache === 'function') window.invalidateSessionTokenCache();
             } catch (e) {}
             // 全局身份
             currentUser = newName;

@@ -335,15 +335,15 @@
     color: var(--md-sidebar-item-text-active);
 }
 
-/* 群主标记 */
+/* 群主标记（v102：文字 #f1af63，背景由文字色生成小药丸） */
 .g-owner-tag {
     flex-shrink: 0;
     padding: 1px 6px;
     border-radius: var(--radius-sm);
-    background: var(--md-primary-container);
+    background: rgba(241, 175, 99, 0.12);
     font-size: 0.625rem;
     font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
-    color: var(--md-primary);
+    color: #f1af63;
     vertical-align: middle;
 }
 

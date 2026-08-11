@@ -181,15 +181,15 @@
 }
 .ud-act-btn.danger { color: var(--md-error, #dc2626); border-color: rgba(220, 38, 38, 0.4); }
 
-/* ==================== 好友专属消息标记 ==================== */
+/* ==================== 好友专属消息标记（v102：文字 #7d63f1，背景由文字色生成小药丸） ==================== */
 .fr-list-badge {
     display: inline-block;
     margin-left: 6px;
     padding: 1px 6px;
     border-radius: 8px;
     font-size: 0.6875rem;
-    background: var(--md-primary-bg, rgba(26, 115, 232, 0.12));
-    color: var(--md-primary, #1a73e8);
+    background: rgba(125, 99, 241, 0.12);
+    color: #7d63f1;
     vertical-align: 1px;
 }
 .fr-msg-badge {
@@ -198,8 +198,8 @@
     padding: 0 6px;
     border-radius: 8px;
     font-size: 0.6875rem;
-    background: var(--md-primary-bg, rgba(26, 115, 232, 0.12));
-    color: var(--md-primary, #1a73e8);
+    background: rgba(125, 99, 241, 0.12);
+    color: #7d63f1;
     vertical-align: 1px;
 }
 .private-friend-tag {
@@ -208,8 +208,8 @@
     padding: 1px 8px;
     border-radius: 10px;
     font-size: 0.6875rem;
-    background: var(--md-primary-bg, rgba(26, 115, 232, 0.12));
-    color: var(--md-primary, #1a73e8);
+    background: rgba(125, 99, 241, 0.12);
+    color: #7d63f1;
     vertical-align: 2px;
 }
 

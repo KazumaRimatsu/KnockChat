@@ -60,11 +60,18 @@
         // All sensitive operations must use these
         // ============================================
 
+        // v102: 会话 token 内存缓存——避免每次 RPC 都重复读 localStorage + JSON.parse；
+        // 登录/改密/登出/注销等写路径调用 invalidateSessionTokenCache() 同步失效。
+        var _sessionTokenCache = null;
+        function invalidateSessionTokenCache() { _sessionTokenCache = null; }
+        if (typeof window !== 'undefined') window.invalidateSessionTokenCache = invalidateSessionTokenCache;
         function getSessionToken() {
+            if (_sessionTokenCache !== null) return _sessionTokenCache;
             try {
                 const session = JSON.parse(localStorage.getItem(LS_KEYS.SESSION));
-                return (session && session.token) ? session.token : '';
-            } catch (e) { return ''; }
+                _sessionTokenCache = (session && session.token) ? session.token : '';
+            } catch (e) { _sessionTokenCache = ''; }
+            return _sessionTokenCache;
         }
 
         // 消息是否由「我」发出（一律以 sender_uid 为准）
@@ -430,6 +437,7 @@
                 recordLastLogin(currentUser);
                 const sessionToken = regSessionToken || generateLocalNonce();
                 localStorage.setItem(LS_KEYS.SESSION, JSON.stringify({ username: username, uid: currentUid, token: sessionToken, pwhash: passwordHash }));
+                invalidateSessionTokenCache();
                 // Initialize encrypted user settings with password hash as key (new user, starts fresh)
                 initUserSettings(passwordHash, username).catch(function(e) { console.warn('initUserSettings failed:', e); });
                 showEl('regSuccess', '注册成功！正在进入...');
@@ -1333,6 +1341,7 @@
             newSessionToken = changeData.session_token || null;
             if (newSessionToken) {
                 localStorage.setItem(LS_KEYS.SESSION, JSON.stringify({ username: currentUser, uid: currentUid, token: newSessionToken, pwhash: newHash }));
+                invalidateSessionTokenCache();
                 // Re-initialize encrypted settings with new password hash
                 initUserSettings(newHash, currentUser).catch(function(e) { console.warn('initUserSettings failed:', e); });
             }
@@ -1528,6 +1537,7 @@
                 }
                 if (overlay) overlay.remove();
                 localStorage.removeItem(LS_KEYS.SESSION);
+                invalidateSessionTokenCache();
                 // v070: 账号注销时同步清除本地聊天记录缓存
                 // v073: 升级为彻底清除本地数据（AI 设置含 API Key、用户配置、密钥盐、消息缓存）
                 clearAllUserLocalData();
@@ -1541,29 +1551,25 @@
             }
         }
 
+        // v102: 账号状态缓存（banned/deleted 变化不频繁），避免每次列表渲染都发起
+        // get_user_profile RPC——列表重绘 RPC 风暴的源头。在线绿点由实时网关 _onlineUsers 兜底。
+        var _userStatusCache = {};
+        var USER_STATUS_TTL = 5 * 60 * 1000;
         async function resolveUserStatus(username) {
             if (!username) return 'offline';
+            var cached = _userStatusCache[username];
+            if (cached && Date.now() - cached.at < USER_STATUS_TTL) return cached.status;
             try {
                 const { data: rpcData, error: rpcError } = await s3.rpc('get_user_profile', { p_username: username });
+                var status = 'offline';
                 if (!rpcError && rpcData) {
-                    if (rpcData.success === false) return 'deleted';
-                    return rpcData.banned ? 'banned' : 'offline';
+                    if (rpcData.success === false) status = 'deleted';
+                    else if (rpcData.banned) status = 'banned';
                 }
+                _userStatusCache[username] = { status: status, at: Date.now() };
+                return status;
             } catch (e) { /* ignore */ }
             return 'offline';
-        }
-
-        // 向服务端核实账号真实状态（banned/deleted/active），用于抵御伪造的广播事件
-        async function verifyServerAccountState(username) {
-            if (!username) return 'unknown';
-            try {
-                const { data: rpcData, error: rpcError } = await s3.rpc('get_user_profile', { p_username: username });
-                if (!rpcError && rpcData) {
-                    if (rpcData.success === false) return 'deleted';
-                    return rpcData.banned ? 'banned' : 'active';
-                }
-            } catch (e) { /* ignore */ }
-            return 'unknown';
         }
 
         // Apply a status to an avatar's status dot, and grey-out the avatar when

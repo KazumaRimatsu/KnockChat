@@ -898,12 +898,6 @@
             input.setSelectionRange(newPos, newPos);
         }
 
-        function buildVoiceFallback(duration, audioUrl) {
-            var attrs = { dur: duration };
-            if (audioUrl) attrs.url = audioUrl;
-            return _wrapMjV064('voice', attrs, '当前版本不支持查看，请更新MJChat版本');
-        }
-
         function toggleVoicePlay(wrap, event) {
             event.stopPropagation();
             const audioUrl = wrap.dataset.audio;
