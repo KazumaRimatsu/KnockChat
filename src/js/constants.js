@@ -4,21 +4,25 @@
         // 凭证只保存在 Worker 的 Secret 环境变量（及 BELL 管理端本机配置），
         // 客户端（含打包后的 exe）不包含任何云存储密钥。
         // 前端统一通过 src/js/s3.js 桥接层调用 HTTP API（POST /rpc）。
-        // 单存储桶目录结构（对象 Key 前缀）：
-        //   users/                用户资料
-        //   sessions/             登录会话
-        //   public/messages/      公聊消息
-        //   private/sessions/     私聊会话
-        //   private/messages/     私聊消息
-        //   media/                图片/语音/文件/头像（媒体统一存该前缀下）
+        // 单存储桶目录结构（对象 Key 前缀，v100 目录式）：
+        //   users/<uid>/            用户目录：info.json 资料、friends.json 好友列表、groups.json 群索引
+        //   users/_index.json        用户名 → UID 索引；users/_meta.json UID 计数器
+        //   sessions/               登录会话（<token code>.json）
+        //   groups/<gid>/           群聊目录：info.json 资料、members.json 成员表、messages/ 群消息、files/ 群文件
+        //   groups/_meta.json       GID 计数器
+        //   invites/<uid>/          邀请列表：groups.json 群邀请、friends.json 好友申请（收发双向同文件）
+        //   private/<sid>/          私聊目录：<sid>.json 会话、messages/ 消息、files/ 附件
+        //   resrc/                  usr_ava/ 用户头像、usr_bkg/ 主页背景、group_ava/ 群头像
+        //   media/emoji/            用户表情（v100 保留历史前缀）
         //   agents/               智能体配置
+        //   upd/                  应用更新包（latest.json 元数据 + 安装包）
         //   config/               云控等全局配置（预留）
         // 服务端 API 地址：打包前请替换为实际部署的 Worker 地址
         //（也可在应用内 localStorage 写入 cika_api_base 覆盖，便于调试/多环境切换）
         const API_BASE_URL = 'https://api.cika-meow.top/';
         const HISTORY_LIMIT = 200;
         // v088: 内核版本号——关于页「内核版本」的显示来源，发布新版本时只需更新此常量
-        const KERNEL_VERSION = 97;
+        const KERNEL_VERSION = 100;
         const CC_BANNER_TITLE = '系统维护';
         const CC_BANNER_MSG = '系统正在维护，暂时无法登录。';
         const SALT = 'mjchat_2026_salt_v1';
@@ -75,8 +79,9 @@
             LAST_LOGIN_TIME: 'mjchat_last_login_time',          // 上次登录时间（未读计数兜底基准）
             USER_CONFIGS: 'mjchat_user_configs',                // 各用户加密设置表 {username: AES密文}
             KEYMETA_PREFIX: 'mjchat_keymeta_',                  // 每用户 AES 密钥元数据（盐+迭代次数）
-            PUBLIC_MUTED: 'mjchat_public_muted',                // 公聊免打扰 '1'/'0'
+            PUBLIC_MUTED: 'mjchat_public_muted',                // 公聊免打扰 '1'/'0'（公聊已移除，兼容清理用）
             PRIVATE_MUTED: 'mjchat_private_muted',              // 私聊会话免打扰 {sessionId:true}
+            GROUP_MUTED: 'mjchat_group_muted',                  // 群聊免打扰 {gid:true}（v099）
             BLOCKWORD: 'mjchat_blockword_settings',             // 屏蔽词设置
             AVATAR_PREFIX: 'mjchat_avatar_',                    // 头像 URL 缓存键前缀（按用户名）
             AVATAR_INDEX: 'mjchat_avatar_index',                // 头像缓存索引（LRU 裁剪用）

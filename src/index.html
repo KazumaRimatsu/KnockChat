@@ -240,6 +240,8 @@
     <link rel="stylesheet" href="css/search.css">
     <link rel="stylesheet" href="css/settings.css">
     <link rel="stylesheet" href="css/ai.css">
+    <!-- v097: 好友功能样式 -->
+    <link rel="stylesheet" href="css/friends.css">
     <link rel="stylesheet" href="css/responsive.css">
     <!-- highlight.js：代码文件预览高亮主题（dark，配合预览器黑底） -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous">
@@ -272,6 +274,7 @@
         <symbol id="icon-float-restore" viewBox="0 0 24 24"><path d="M4 3h7v2H6v3H4V3zm16 0v5h-2V5h-5V3h7zM4 21h7v-2H6v-3H4v5zm16-5v5h-7v-2h5v-3h2z"/></symbol>
         <symbol id="icon-close" viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></symbol>
         <symbol id="icon-audio" viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></symbol>
+        <symbol id="icon-friends" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></symbol>
     </svg>
     <div class="app">
 
@@ -293,18 +296,24 @@
                         <svg viewBox="0 0 24 24"><use href="#icon-menu" xlink:href="#icon-menu"/></svg>
                     </button>
                 </div>
-                <div class="public-chat-entry" id="publicChatEntry" onclick="navigateTo('public')">
-                    <div class="icon"><svg viewBox="0 0 24 24"><use href="#icon-chat" xlink:href="#icon-chat"/></svg></div>
-                    <div class="info"><div class="name">公共</div><div class="sub" id="publicEntrySub">点击进入聊天</div></div>
-                    <div class="badge" id="publicUnreadBadge" style="display:none;">新</div>
+                <!-- v100: 统一聊天列表（群聊 + 私聊 + 群聊邀请入口单容器渲染，无分区分隔线） -->
+                <div class="private-list group-list" id="chatList">
+                    <div class="group-invite-row" id="groupInviteEntry" onclick="openGroupInvitesDialog()" style="display:none;">
+                        <div class="ginv-row-icon"><svg viewBox="0 0 24 24"><use href="#icon-friends" xlink:href="#icon-friends"/></svg></div>
+                        <div class="info">
+                            <div class="name">群聊邀请</div>
+                            <div class="last-msg" id="groupInviteSub">收到新的群聊邀请</div>
+                        </div>
+                        <div class="unread-badge" id="groupInviteBadge" style="display:none;">0</div>
+                    </div>
                 </div>
-                <div class="private-list" id="privateList"><div class="empty">暂无私聊，点击用户头像发起</div></div>
             </div>
             <div class="user-menu-overlay sidebar-menu" id="homeMenuOverlay" onclick="closeHomeMenu(event)">
                 <div class="user-menu-card" onclick="event.stopPropagation()">
                     <div class="user-info" onclick="closeHomeMenu();openUserDetailPage(currentUser);" style="cursor:pointer"><div class="avatar-wrap"><div class="user-avatar" id="homeMenuAvatar">U</div><div class="avatar-status-dot" id="homeAvatarDot"></div></div><div class="user-name" id="homeMenuName">用户</div></div>
                     <ul class="menu-list">
-                        <li onclick="closeHomeMenu();openUserDetailPage(currentUser);"><svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>我的资料</li>
+                        <li onclick="closeHomeMenu();openFriendsPage();"><svg viewBox="0 0 24 24"><use href="#icon-friends" xlink:href="#icon-friends"/></svg>我的好友<span class="menu-badge" id="friendReqBadge" style="display:none;">0</span></li>
+                        <li onclick="closeHomeMenu();openCreateGroupDialog();"><svg viewBox="0 0 24 24"><use href="#icon-plus" xlink:href="#icon-plus"/></svg>新建群聊</li>
                         <li onclick="closeHomeMenu();navigateTo('settings');"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94L14.4 2.81c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41L9.25 5.35c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>设置</li>
                         <li onclick="closeHomeMenu();navigateTo('search');"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>搜索用户</li>
                         <li onclick="closeHomeMenu();navigateTo('about');"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>关于</li>
@@ -320,10 +329,10 @@
             <div class="page public-page" id="publicPage">
                 <div class="app-bar">
                     <div class="title-block">
-                        <span class="title">公共</span>
+                        <span class="title" id="publicChatTitle" onclick="showGroupInfoDialog()" title="查看群聊信息" style="cursor:pointer">群聊</span>
                         <span class="online-count" id="publicOnlineCount"></span>
                     </div>
-                    <button class="icon-button" id="publicMenuBtn" onclick="togglePublicMenu()" title="菜单">
+                    <button class="icon-button" id="publicMenuBtn" onclick="togglePublicMenu()" title="群聊菜单">
                         <svg viewBox="0 0 24 24"><use href="#icon-menu" xlink:href="#icon-menu"/></svg>
                     </button>
                 </div>
@@ -332,11 +341,11 @@
                 </div>
                 <div id="publicReplyPreview" class="reply-preview" style="display:none;">
                     <span class="reply-content" id="publicReplyContent">回复 @xxx：内容</span>
-                    <button class="reply-cancel" onclick="cancelPublicReply()">✕</button>
+                    <button class="reply-cancel" onclick="cancelGroupReply()">✕</button>
                 </div>
                 <div class="chat-bar">
-                    <div class="input-container"><textarea class="msg-input" id="publicMsgInput" placeholder="按Enter发送，Ctrl/Shift+Enter换行" rows="1" oninput="autoResize(this);togglePublicSendBtn();updateMentionFromInput(this)" onkeydown="handlePublicKeyDown(event)"></textarea></div>
-                    <button class="fab-send" id="publicSendBtn" onclick="sendPublicMsg()" disabled>
+                    <div class="input-container"><textarea class="msg-input" id="publicMsgInput" placeholder="按Enter发送，Ctrl/Shift+Enter换行" rows="1" oninput="autoResize(this);toggleGroupSendBtn();updateMentionFromInput(this)" onkeydown="handleGroupKeyDown(event)"></textarea></div>
+                    <button class="fab-send" id="publicSendBtn" onclick="sendGroupMsg()" disabled>
                         <span class="send-spinner"></span><svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
                     </button>
                 </div>
@@ -385,6 +394,7 @@
                 <div class="app-bar">
                     <div class="title-block">
                         <span class="title" id="privateChatTitle"></span>
+                        <span class="private-friend-tag" id="privateFriendTag" style="display:none;">好友</span>
                         <span class="private-status" id="privateChatStatus"></span>
                     </div>
                     <button class="icon-button" id="privateMenuBtn" onclick="togglePrivateMenu()" title="菜单">
@@ -445,6 +455,50 @@
                 </div>
                 <input type="file" id="privateImageInput" accept="image/*" multiple style="display:none" onchange="privateHandleImageSelect(event)">
                 <input type="file" id="privateFileInput" style="display:none" onchange="privateHandleFileSelect(event)">
+            </div>
+
+            <!-- v097: 好友列表页 -->
+            <div class="page friends-page" id="friendsPage">
+                <div class="app-bar">
+                    <div class="title-block">
+                        <button class="back-btn" onclick="navigateBack()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button>
+                        <span class="title">好友</span>
+                    </div>
+                    <div class="app-bar-actions">
+                        <button class="icon-button" onclick="openAddFriendPage()" title="添加好友">
+                            <svg viewBox="0 0 24 24"><use href="#icon-plus" xlink:href="#icon-plus"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="friends-requests-entry" id="friendReqEntry" onclick="openAddFriendPage()" style="display:none;">
+                    <span class="freq-text">收到 0 条好友申请</span>
+                </div>
+                <div class="friends-scroll" id="friendsContainer"></div>
+            </div>
+
+            <!-- v097: 添加好友页 -->
+            <div class="page add-friend-page" id="addFriendPage">
+                <div class="app-bar">
+                    <div class="title-block">
+                        <button class="back-btn" onclick="navigateBack()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button>
+                        <span class="title">添加好友</span>
+                    </div>
+                </div>
+                <div class="add-friend-scroll">
+                    <div class="friend-search-box">
+                        <input type="text" id="friendSearchInput" placeholder="输入昵称搜索用户..." onkeydown="if(event.key==='Enter')doFriendSearch()">
+                        <button class="fr-btn primary" onclick="doFriendSearch()">搜索</button>
+                    </div>
+                    <div id="friendSearchResults"><div class="empty">输入昵称搜索用户，直接发起好友申请</div></div>
+                    <div class="req-section">
+                        <div class="req-section-title">收到的申请</div>
+                        <div id="friendReqIn"></div>
+                    </div>
+                    <div class="req-section">
+                        <div class="req-section-title">发出的申请</div>
+                        <div id="friendReqOut"></div>
+                    </div>
+                </div>
             </div>
 
             <div class="page search-page" id="searchPage">
@@ -569,7 +623,7 @@
                         <img src="assets/logo.png" alt="KnockChat" style="width:96px;height:96px;">
                     </div>
                     <div class="about-name">KnockChat 敲敲</div>
-                    <div class="about-mjchat-version" id="aboutMjchatVersion">内核版本 v088</div>
+                    <div class="about-mjchat-version" id="aboutMjchatVersion">内核版本 v100</div>
                     <div class="about-github">Github:<a href="https://github.com/KazumaRimatsu/CikaChat" target="_blank" rel="noopener noreferrer">KazumaRimatsu/CikaChat</a></div>
                     <div class="about-opensource">基于<a href="https://github.com/ManJuanAll/MJChat" target="_blank" rel="noopener noreferrer"> MJChat </a>及其他<a role="button" tabindex="0" onclick="showOpensourceDialog()"> 开源项目 </a></div>
                     <!-- v089: 更新拉取——从存储桶 upd/latest.json 检查并下载新版本安装包 -->
@@ -600,6 +654,8 @@
                     </div>
                     <div class="ud-status-text" id="udStatusText">正常</div>
                 </div>
+                <!-- v097: 好友操作栏（好友/非好友差异化按钮，由 friends.js 渲染） -->
+                <div class="ud-action-bar" id="udActionBar"></div>
                 <div class="ud-divider"></div>
                 <div class="ud-info-list" id="udInfoList">
                 </div>
@@ -770,18 +826,25 @@
                 </div>
                 <button class="md-button primary" id="userProfileViewBtn" onclick="openUserDetailFromProfile()" style="width:100%;padding:14px 16px;border:none;border-radius:0;font-weight:400;cursor:pointer;background:transparent;color:var(--md-primary);font-size:0.9375rem;text-align:left;border-bottom:1px solid var(--md-outline);">查看资料</button>
                 <button class="md-button primary" id="userProfileChatBtn" onclick="startPrivateChatFromProfile()" style="width:100%;padding:14px 16px;border:none;border-radius:0;font-weight:400;cursor:pointer;background:transparent;color:var(--md-primary);font-size:0.9375rem;margin-top:8px;text-align:left;border-bottom:1px solid var(--md-outline);">发起私聊</button>
+                <!-- v097: 公开名片快捷发起好友申请 -->
+                <button class="md-button primary" id="userProfileAddFriendBtn" onclick="addFriendFromProfile()" style="width:100%;padding:14px 16px;border:none;border-radius:0;font-weight:400;cursor:pointer;background:transparent;color:var(--md-primary);font-size:0.9375rem;margin-top:8px;text-align:left;">添加好友</button>
             </div>
         </div>
 
         <div class="user-menu-overlay" id="publicMenuOverlay" onclick="closePublicMenu(event)">
             <div class="user-menu-card" onclick="event.stopPropagation()">
-                <div class="user-info"><div class="avatar-wrap"><div class="user-avatar" id="publicMenuAvatar">U</div><div class="avatar-status-dot" id="publicAvatarDot"></div></div><div class="user-name" id="publicMenuName">用户</div></div>
+                <div class="user-info"><div class="avatar-wrap"><div class="user-avatar" id="publicMenuAvatar">群</div></div><div class="user-name" id="publicMenuName">群聊</div></div>
                 <ul class="menu-list">
                     <li id="publicMenuNotifyItem" style="display:none;" onclick="togglePublicNotify();"><svg viewBox="0 0 24 24"><use href="#icon-bell" xlink:href="#icon-bell"/></svg><span id="publicNotifyLabel">开启消息提示音</span></li>
-                    <!-- v053: 群聊免打扰 -->
+                    <!-- v099: 群聊免打扰 -->
                     <li id="publicMenuMuteItem" onclick="closePublicMenu();togglePublicMute();"><svg viewBox="0 0 24 24"><use href="#icon-dnd" xlink:href="#icon-dnd"/></svg><span id="publicMuteLabel">群聊免打扰</span></li>
-                    <li onclick="closePublicMenu();showAgentList();"><svg viewBox="0 0 24 24"><path d="M20 9V7c0-1.1-.9-2-2-2h-3c0-1.66-1.34-3-3-3S9 3.34 9 5H6c-1.1 0-2 .9-2 2v2c-1.66 0-3 1.34-3 3s1.34 3 3 3v4c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-4c1.66 0 3-1.34 3-3s-1.34-3-3-3zm-2 10H6V7h12v12zm-9-6c.83 0 1.5-.67 1.5-1.5S10.83 9 10 9s-1.5.67-1.5 1.5S9.17 13 10 13zm4 0c.83 0 1.5-.67 1.5-1.5S14.83 9 14 9s-1.5.67-1.5 1.5S13.17 13 14 13z"/></svg>智能体</li>
+                    <!-- v099: 群聊专属菜单（替代原公聊菜单项）；群聊信息改由点击标题栏群聊名称触发 -->
+                    <li onclick="closePublicMenu();showGroupMembersDialog();"><svg viewBox="0 0 24 24"><use href="#icon-friends" xlink:href="#icon-friends"/></svg><span id="publicMenuMemberLabel">群成员</span></li>
+                    <li onclick="closePublicMenu();openGroupInviteFriendsDialog();"><svg viewBox="0 0 24 24"><use href="#icon-plus" xlink:href="#icon-plus"/></svg>邀请好友</li>
                     <li onclick="closePublicMenu();showGroupFiles();"><svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>群文件</li>
+                    <!-- v102: 群管理（管理员/群主）：全体禁言；群主：清空群消息、群转让 -->
+                    <li id="publicMenuManageItem" style="display:none;" onclick="closePublicMenu();openGroupManageDialog();"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>群管理</li>
+                    <li class="logout-item" onclick="closePublicMenu();quitCurrentGroup();"><svg viewBox="0 0 24 24"><use href="#icon-block" xlink:href="#icon-block"/></svg>退出群聊</li>
                 </ul>
             </div>
         </div>
@@ -793,6 +856,8 @@
                     <li id="privateMenuNotifyItem" style="display:none;" onclick="togglePrivateNotify();"><svg viewBox="0 0 24 24"><use href="#icon-bell" xlink:href="#icon-bell"/></svg><span id="privateNotifyLabel">开启消息提示音</span></li>
                     <!-- v053: 私聊按会话免打扰 -->
                     <li id="privateMenuMuteItem" onclick="closePrivateMenu();togglePrivateMute();"><svg viewBox="0 0 24 24"><use href="#icon-dnd" xlink:href="#icon-dnd"/></svg><span id="privateMuteLabel">消息免打扰</span></li>
+                    <!-- v097: 非好友时提供快捷发起好友申请 -->
+                    <li id="privateMenuAddFriendItem" style="display:none;" onclick="togglePrivateAddFriend();"><svg viewBox="0 0 24 24"><use href="#icon-friends" xlink:href="#icon-friends"/></svg>添加好友</li>
                     <li onclick="closePrivateMenu();toggleBlockUser();"><svg viewBox="0 0 24 24"><use href="#icon-block" xlink:href="#icon-block"/></svg><span id="privateBlockLabel">加入黑名单</span></li>
                     <li class="logout-item" onclick="closePrivateMenu();deletePrivateChat();"><svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>删除对话</li>
                 </ul>
@@ -1066,6 +1131,146 @@
             </div>
         </div>
 
+        <!-- v099: 创建群聊弹窗 -->
+        <div class="dialog-overlay hidden" id="createGroupDialog" onclick="if(event.target===this)closeCreateGroupDialog()">
+            <div class="md-dialog">
+                <div class="dialog-header"><h2>创建群聊</h2><button onclick="closeCreateGroupDialog()" class="theme-dialog-close">✕</button></div>
+                <div class="cg-form">
+                    <div class="cg-avatar-row">
+                        <div class="cg-avatar" id="cgAvatar" onclick="document.getElementById('cgAvatarInput').click()">群</div>
+                        <div class="cg-avatar-edit" onclick="document.getElementById('cgAvatarInput').click()">更换头像</div>
+                    </div>
+                    <div class="md-text-field"><input type="text" id="cgName" placeholder=" " maxlength="50"><label>群聊名称（2-50 字符）</label></div>
+                    <div class="md-text-field"><textarea id="cgDesc" class="md-textarea" placeholder=" " maxlength="200" rows="2"></textarea><label>群描述（选填，最多 200 字）</label></div>
+                    <div class="cg-error" id="cgError"></div>
+                    <div class="cg-member-header">
+                        <span>选择成员（群聊至少 2 人，最多 1000 人）</span>
+                        <span class="cg-member-count" id="cgMemberCount">已选 0 人</span>
+                    </div>
+                    <div class="cg-member-list" id="cgMemberList"><div class="empty">加载好友中...</div></div>
+                </div>
+                <div class="dialog-actions">
+                    <button class="md-button text" onclick="closeCreateGroupDialog()">取消</button>
+                    <button class="md-button text" id="cgCreateBtn" onclick="submitCreateGroup()">创建</button>
+                </div>
+                <input type="file" id="cgAvatarInput" accept="image/*" style="display:none" onchange="handleCgAvatarSelect(event)">
+            </div>
+        </div>
+
+        <!-- v099: 群聊信息弹窗 -->
+        <div class="dialog-overlay hidden" id="groupInfoDialog" onclick="if(event.target===this)closeGroupInfoDialog()">
+            <div class="md-dialog">
+                <div class="dialog-header"><h2>群聊信息</h2><button onclick="closeGroupInfoDialog()" class="theme-dialog-close">✕</button></div>
+                <div class="gi-content" id="groupInfoContent"><div class="empty">加载中...</div></div>
+                <div class="dialog-actions"><button class="md-button text" onclick="closeGroupInfoDialog()">完成</button></div>
+            </div>
+        </div>
+
+        <!-- v100.x: 群资料编辑弹窗（管理员/群主） -->
+        <div class="dialog-overlay hidden" id="groupInfoEditDialog" onclick="if(event.target===this)closeGroupInfoEditDialog()">
+            <div class="md-dialog">
+                <div class="dialog-header"><h2>编辑群资料</h2><button onclick="closeGroupInfoEditDialog()" class="theme-dialog-close">✕</button></div>
+                <div class="gie-body">
+                    <div class="gie-avatar-row">
+                        <div class="av gie-avatar" id="gieAvatar" onclick="document.getElementById('gieAvatarInput').click()">群</div>
+                        <div>
+                            <button class="md-button text" onclick="document.getElementById('gieAvatarInput').click()">更换头像</button>
+                            <div class="gi-muted">点击头像或按钮上传，最大 5MB</div>
+                        </div>
+                        <input type="file" id="gieAvatarInput" accept="image/*" style="display:none;" onchange="handleGieAvatarSelect(event)">
+                    </div>
+                    <div class="gie-field">
+                        <label for="gieName">群聊名称（2-50 字符）</label>
+                        <input class="md-input" id="gieName" maxlength="50" placeholder="群聊名称">
+                    </div>
+                    <div class="gie-field">
+                        <label for="gieDesc">群简介（200 字符内）</label>
+                        <textarea class="md-input gie-desc" id="gieDesc" maxlength="200" rows="3" placeholder="介绍一下这个群..."></textarea>
+                    </div>
+                    <div class="gie-error" id="gieError"></div>
+                </div>
+                <div class="dialog-actions">
+                    <button class="md-button text" onclick="closeGroupInfoEditDialog()">取消</button>
+                    <button class="md-button primary" id="gieSaveBtn" onclick="submitGroupInfoEdit()">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- v100.x: 禁言时长选择弹窗（成员禁言/全体禁言） -->
+        <div class="dialog-overlay hidden" id="groupMuteDialog" onclick="if(event.target===this)closeGroupMuteDialog()">
+            <div class="md-dialog">
+                <div class="dialog-header"><h2 id="gmTitle">禁言</h2><button onclick="closeGroupMuteDialog()" class="theme-dialog-close">✕</button></div>
+                <div class="gm-body">
+                    <div class="gi-muted gm-hint">禁言时长范围：1 分钟 ~ 7 天</div>
+                    <div class="gm-presets" id="gmPresets"></div>
+                    <!-- v102: 自定义时长（数值 + 单位：分钟/小时/天） -->
+                    <div class="gm-custom">
+                        <div class="gm-custom-title">自定义时长</div>
+                        <div class="gm-custom-row">
+                            <input class="md-input gm-custom-input" id="gmCustomValue" type="number" min="1" max="10080" step="1" placeholder="时长">
+                            <select class="md-input gm-custom-unit" id="gmCustomUnit">
+                                <option value="1">分钟</option>
+                                <option value="60">小时</option>
+                                <option value="1440">天</option>
+                            </select>
+                            <button class="md-button primary gm-custom-btn" onclick="groupModule.applyCustomMute()">确定</button>
+                        </div>
+                    </div>
+                    <button class="md-button text gm-unmute" id="gmUnmute" onclick="groupModule.applyMute(0)">解除禁言</button>
+                </div>
+                <div class="dialog-actions"><button class="md-button text" onclick="closeGroupMuteDialog()">取消</button></div>
+            </div>
+        </div>
+
+        <!-- v102: 群管理弹窗（管理员/群主）：全体禁言；群主：清空群消息、群转让 -->
+        <div class="dialog-overlay hidden" id="groupManageDialog" onclick="if(event.target===this)closeGroupManageDialog()">
+            <div class="md-dialog">
+                <div class="dialog-header"><h2>群管理</h2><button onclick="closeGroupManageDialog()" class="theme-dialog-close">✕</button></div>
+                <div class="gmg-list">
+                    <button class="gmg-row" id="gmgMuteAllRow" onclick="openGroupMuteAllDialog()">
+                        <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        <span id="gmgMuteAllLabel">全体禁言</span><span class="gmg-chev">›</span>
+                    </button>
+                    <button class="gmg-row gmg-danger" id="gmgClearMsgRow" onclick="clearGroupMessages()" style="display:none;">
+                        <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                        清空群消息<span class="gmg-chev">›</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- v099: 群成员列表弹窗 -->
+        <div class="dialog-overlay hidden" id="groupMembersDialog" onclick="if(event.target===this)closeGroupMembersDialog()">
+            <div class="md-dialog">
+                <div class="dialog-header"><h2>群成员</h2><button onclick="closeGroupMembersDialog()" class="theme-dialog-close">✕</button></div>
+                <div class="gm-list" id="groupMembersContainer"><div class="empty">加载中...</div></div>
+            </div>
+        </div>
+
+        <!-- v099: 群邀请处理弹窗（收到邀请） -->
+        <div class="dialog-overlay hidden" id="groupInvitesDialog" onclick="if(event.target===this)closeGroupInvitesDialog()">
+            <div class="md-dialog">
+                <div class="dialog-header"><h2>群聊邀请</h2><button onclick="closeGroupInvitesDialog()" class="theme-dialog-close">✕</button></div>
+                <div class="ginv-list" id="groupInvitesContainer"><div class="empty">加载中...</div></div>
+            </div>
+        </div>
+
+        <!-- v099: 邀请好友加入群聊弹窗 -->
+        <div class="dialog-overlay hidden" id="groupInviteFriendsDialog" onclick="if(event.target===this)closeGroupInviteFriendsDialog()">
+            <div class="md-dialog">
+                <div class="dialog-header"><h2>邀请好友</h2><button onclick="closeGroupInviteFriendsDialog()" class="theme-dialog-close">✕</button></div>
+                <div class="cg-member-header">
+                    <span>选择要邀请的好友（对方确认后进群）</span>
+                    <span class="cg-member-count" id="gifMemberCount">已选 0 人</span>
+                </div>
+                <div class="cg-member-list" id="gifMemberList"><div class="empty">加载中...</div></div>
+                <div class="dialog-actions">
+                    <button class="md-button text" onclick="closeGroupInviteFriendsDialog()">取消</button>
+                    <button class="md-button text" id="gifSendBtn" onclick="submitGroupInviteFriends()">发送邀请</button>
+                </div>
+            </div>
+        </div>
+
     </div>
 
 
@@ -1089,5 +1294,9 @@
     <script src="js/ai.js"></script>
     <!-- 文件预览器：图片/视频/Office/代码文件统一预览（highlight.js 在 fview.js 中按需加载） -->
     <script src="js/fview.js"></script>
+    <!-- v097: 好友功能模块（依赖 chat.js / other.js / profile.js 已先行加载） -->
+    <script src="js/friends.js"></script>
+    <!-- v099: 群聊功能模块（依赖 chat.js / other.js / friends.js 已先行加载） -->
+    <script src="js/group.js"></script>
 </body>
 </html>

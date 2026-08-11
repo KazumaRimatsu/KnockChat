@@ -186,6 +186,58 @@
     color: var(--md-on-surface-variant);
 }
 
+/* v100.x: 群文件用量条 */
+.gf-usage {
+    padding: 10px 16px;
+    margin-bottom: 10px;
+    border-radius: var(--radius-md);
+    background: var(--md-surface-container-low);
+}
+
+.gf-usage-text {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8125rem;
+    color: var(--md-on-surface-variant);
+}
+
+.gf-usage-text b {
+    color: var(--md-on-surface);
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+}
+
+.gf-usage-bar {
+    height: 6px;
+    margin-top: 8px;
+    border-radius: 3px;
+    background: var(--md-surface-variant);
+    overflow: hidden;
+}
+
+.gf-usage-bar-inner {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--md-primary);
+    transition: width 0.3s;
+}
+
+.gf-file-del {
+    flex-shrink: 0;
+    margin-left: 8px;
+    padding: 4px 10px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--md-error-container);
+    font-size: 0.75rem;
+    color: var(--md-on-error-container);
+    cursor: pointer;
+}
+
+.gf-file-del:hover {
+    opacity: 0.85;
+}
+
 /* --- 关于页 --- */
 .about-page .about-scroll {
     display: flex;

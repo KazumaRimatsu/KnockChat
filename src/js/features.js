@@ -146,32 +146,31 @@
         const publicRecorder = createVoiceRecorder({
             ids: { btn: 'recordBtn', timer: 'recordTimer', hint: 'recordHint', stopBtn: 'recordStopBtn' },
             tooShortMsg: '录音太短',
-            makePath: (ext) => `public/${Date.now()}-${generateId()}.${ext}`,
+            // v100.x: 群聊语音存储路径（目录式：groups/<gid>/voice/，不计入群文件用量与列表）
+            makePath: (ext) => `groups/${currentGroupId || 'unknown'}/voice/${Date.now()}-${generateId()}.${ext}`,
             onUploaded: async (duration, url) => {
-                const fallbackText = buildVoiceFallback(duration);
-                let audioResult = await sendPublicMessageSecure({
-                    text: fallbackText,
-                    audio_url: url,
-                    audio_dur: duration,
+                if (!currentGroupId) { showSnackbar('请先选择群聊'); return; }
+                // v101: 统一 contents 协议——语音消息 audio 类型
+                const audioResult = await sendGroupMessageSecure(currentGroupId, {
+                    contents: buildContents('audio', { url: url, dur: duration }),
                     is_system: false
                 });
-                if (!audioResult.success && audioResult.message && (audioResult.message.includes('audio_dur') || audioResult.message.includes('audio_url'))) {
-                    audioResult = await sendPublicMessageSecure({
-                        text: buildVoiceFallback(duration, url),
-                        is_system: false
-                    });
-                }
                 if (!audioResult.success) showSnackbar('发送语音失败: ' + (audioResult.message || ''));
-                else showSnackbar('语音已发送');
+                else if (audioResult.message) {
+                    handleGroupMessage(currentGroupId, audioResult.message);
+                    const mContainer = document.getElementById('publicMessages');
+                    if (mContainer) { scrollToBottom(mContainer); updateScrollButton(mContainer); mContainer._userScrolledUp = false; }
+                }
             }
         });
 
         const privateRecorder = createVoiceRecorder({
             ids: { btn: 'privateRecordBtn', timer: 'privateRecordTimer', hint: 'privateRecordHint', stopBtn: 'privateRecordStopBtn' },
             tooShortMsg: '录音时间太短',
-            makePath: (ext) => `private/${privateSessionId || 'unknown'}/${Date.now()}-${generateId()}.${ext}`,
+            makePath: (ext) => `private/${privateSessionId || 'unknown'}/files/${Date.now()}-${generateId()}.${ext}`,
             onUploaded: async (duration, url) => {
-                const content = _wrapMjV064('voice', { dur: duration, url: url }, '当前版本不支持查看，请更新MJChat版本');
+                // v101: 统一 contents 协议——语音消息 audio 类型
+                const content = buildContents('audio', { url: url, dur: duration });
                 try {
                     const newMsg = await safeInsertPrivateMsg(privateSessionId, currentUser, content);
                     appendPrivateMsgLocally(newMsg, false);
@@ -253,10 +252,10 @@
                 soundValue.textContent = snd ? snd.label : '经典三全音';
             }
 
-            // Update chat menu items：免打扰关闭时显示「消息提示音」开关，开启时隐藏
+            // Update chat menu items：免打扰关闭时显示「消息提示音」开关，开启时隐藏（v099: 按当前群判断）
             const publicMenuItem = document.getElementById('publicMenuNotifyItem');
             if (publicMenuItem) {
-                const publicMuted = (typeof _mutePublic !== 'undefined') && _mutePublic;
+                const publicMuted = currentGroupId && _muteGroups && _muteGroups[currentGroupId];
                 publicMenuItem.style.display = publicMuted ? 'none' : '';
                 const publicLabel = document.getElementById('publicNotifyLabel');
                 if (publicLabel) {
@@ -347,7 +346,7 @@
             refreshNotifySettingsUI();
             showSnackbar(_userSettingsCache.notify[key] ? onText : offText);
         }
-        function togglePublicNotify() { return toggleNotifyMode('publicEnabled', '公共聊天消息提示音已开启', '公共聊天消息提示音已关闭'); }
+        function togglePublicNotify() { return toggleNotifyMode('publicEnabled', '群聊消息提示音已开启', '群聊消息提示音已关闭'); }
         function togglePrivateNotify() { return toggleNotifyMode('privateEnabled', '私聊消息提示音已开启', '私聊消息提示音已关闭'); }
 
         // 功能面板控制器工厂：公聊/私聊的常驻功能条、子面板（表情/文字特效/语音）、
@@ -413,7 +412,8 @@
             emojiGridId: 'emojiGrid', inputId: 'publicMsgInput',
             imageInputId: 'imageInput', fileInputId: 'fileInput',
             recorder: publicRecorder, closePanelOnPick: false,
-            toggleSendBtn: togglePublicSendBtn
+            // v099: 群聊发送按钮开关
+            toggleSendBtn: toggleGroupSendBtn
         });
         const privatePanelCtrl = createFeaturePanelController({
             panelId: 'privateFeaturePanel', moreBtnId: 'privateMoreBtn',
@@ -459,7 +459,7 @@
         }
 
         // v091: 发送前保护 mjv064 表情码不被 cleanHtml 剥离（白名单无 mjv064 标签），
-        // 用控制字符占位，cleanHtml 还原后再交给 autoConvertUrls（其遇 <mjv064 会跳过 URL 转换）
+        // 用控制字符占位，cleanHtml 还原后再交给发送逻辑（纯表情消息识别为 emoji 类型，混排文本由渲染端内联展示）
         function sanitizeWithEmoji(text) {
             const saved = [];
             let t = String(text || '');
@@ -648,7 +648,9 @@
                     // 压缩/GIF 后最终 blob 二次校验（先校验再上传）
                     const finalErr = fileSizeError(blobToUpload, MAX_IMAGE_SIZE, `图片 ${file.name}（压缩后）`);
                     if (finalErr) { showSnackbar(finalErr); continue; }
-                    const filePath = (isPrivate ? `private/${privateSessionId}/` : 'chat/') + `${Date.now()}-${generateId()}-${i}.${ext}`;
+                    // v100.x: 群聊图片存储路径（目录式：groups/<gid>/image/，群文件页不展示图片）；
+                    // 私聊图片仍为 private/<sid>/files/
+                    const filePath = (isPrivate ? `private/${privateSessionId}/files/` : `groups/${currentGroupId}/image/`) + `${Date.now()}-${generateId()}-${i}.${ext}`;
                     try {
                         const url = await uploadToBucket(filePath, blobToUpload, contentType);
                         if (url) imageUrls.push(url);
@@ -662,37 +664,37 @@
                     return;
                 }
 
-                let text = '';
+                // v101: 统一 contents 协议——单图走 image 类型，多图走 richtext（内联 <img>）保留网格展示
+                let contentsJson;
                 if (imageUrls.length === 1) {
-                    text = isPrivate ? `![](${imageUrls[0]})` : '';
+                    contentsJson = buildContents('image', { url: imageUrls[0] });
                 } else {
-                    text = imageUrls.map(url => `![](${url})`).join('\n');
-                    text = '🖼️ ' + text;
+                    const imgs = imageUrls.map(url => `<img src="${escapeAttr(url)}" alt="图片" width="160">`).join('');
+                    contentsJson = buildContents('richtext', { content: imgs });
                 }
 
                 if (isPrivate) {
                     try {
-                        const newMsg = await safeInsertPrivateMsg(privateSessionId, currentUser, text);
+                        const newMsg = await safeInsertPrivateMsg(privateSessionId, currentUser, contentsJson);
                         appendPrivateMsgLocally(newMsg, true);
                     } catch (ie) {
                         const msg = ie.message || '';
                         showSnackbar(msg.includes('隐私') || msg.includes('拒收') ? msg : '发送失败: ' + msg);
                     }
                 } else {
+                    // v099: 群聊图片发送（替代原公聊）
+                    if (!currentGroupId) { showSnackbar('请先选择群聊'); return; }
                     const payload = {
                         sender: currentUser,
-                        text: text,
-                        image_url: imageUrls[0],
-                        msg_version: APP_VERSION,
+                        contents: contentsJson,
                         is_system: false
                     };
-                    const result = await sendPublicMessageSecure(payload);
+                    const result = await sendGroupMessageSecure(currentGroupId, payload);
                     if (!result.success) {
                         showSnackbar('发送图片失败: ' + (result.message || ''));
                     } else if (result.message) {
                         // v089: 服务端已落库，立即本地渲染并计入缓存（不等下一轮轮询）
-                        handlePublicMessage(result.message);
-                        updatePublicEntry();
+                        handleGroupMessage(currentGroupId, result.message);
                         // v090: 自己刚发送的消息强制滚动到视野（与文本发送路径一致）
                         const mContainer = document.getElementById('publicMessages');
                         if (mContainer) {
@@ -704,7 +706,7 @@
                 }
             } finally {
                 setSendState(sendBtnId, false);
-                if (isPrivate) togglePrivateSendBtn(); else togglePublicSendBtn();
+                if (isPrivate) togglePrivateSendBtn(); else toggleGroupSendBtn();
             }
         }
 
@@ -791,41 +793,30 @@
             event.target.value = '';
             const sizeErr = fileSizeError(file, MAX_FILE_SIZE, '文件');
             if (sizeErr) { showSnackbar(sizeErr); return; }
+            if (!currentGroupId) { showSnackbar('请先选择群聊'); return; }
             showSnackbar('正在上传文件...');
             // v086: 上传+发送期间发送按钮禁用并显示加载动画
             setSendState('publicSendBtn', true);
             const ext = file.name.split('.').pop() || 'file';
-            const filePath = `public/${Date.now()}-${generateId()}.${ext}`;
+            // v100: 群聊文件存储路径（目录式：groups/<gid>/files/）
+            const filePath = `groups/${currentGroupId}/files/${Date.now()}-${generateId()}.${ext}`;
             // v089: try/finally 兜底——无论上传/发送是否抛错或挂起，发送按钮都必须恢复
             try {
                 const url = await uploadToBucket(filePath, file, file.type || 'application/octet-stream');
                 if (!url) return;
                 const fileSize = (file.size / 1024).toFixed(1);
-                const fileText = buildFileText(file.name, fileSize, url);
-                const ieResult = await sendPublicMessageSecure({ text: fileText, is_system: false });
+                // v101: 统一 contents 协议——文件消息 file 类型
+                const ieResult = await sendGroupMessageSecure(currentGroupId, {
+                    contents: buildContents('file', { url: url, name: file.name, size: fileSize }),
+                    is_system: false
+                });
                 if (!ieResult.success) showSnackbar('发送文件失败: ' + (ieResult.message || ''));
+                else if (ieResult.message) handleGroupMessage(currentGroupId, ieResult.message);
             } catch (e) { showSnackbar('上传失败'); }
             finally {
                 setSendState('publicSendBtn', false);
-                togglePublicSendBtn();
+                toggleGroupSendBtn();
             }
-        }
-
-        function buildFileText(filename, fileSize, url) {
-            return _wrapMjV064('file', { name: filename, size: fileSize, url: url }, '当前版本不支持查看，请更新MJChat版本');
-        }
-
-        // 发送前自动识别文本中的 http(s) 链接并转换为 mjv064 链接（已有链接/文件/mjv064 格式则跳过）
-        function autoConvertUrls(text) {
-            if (!text) return text;
-            if (/\[链接\]/.test(text) || /\[文件\]/.test(text) || /<mjv064/.test(text)) return text;
-            var httpRegex = /(https?:\/\/[^\s]+)/gi;
-            var httpMatches = text.match(httpRegex);
-            if (httpMatches && httpMatches.length > 0) {
-                var url = httpMatches[0];
-                return _wrapMjV064('link', { url: url, text: url }, '当前版本不支持查看，请更新MJChat版本');
-            }
-            return text;
         }
 
         function openLinkDialog(mode) {
@@ -855,20 +846,26 @@
             if (!url) { showSnackbar('请输入链接地址'); return; }
             if (!isSafeUrl(url)) { showSnackbar('链接地址无效，仅支持 http/https/mailto/tel'); return; }
             const displayText = text || url;
-            const linkText = _wrapMjV064('link', { url: url, text: displayText }, '当前版本不支持查看，请更新MJChat版本');
+            // v101: 统一 contents 协议——链接消息走 richtext 类型（渲染端白名单清洗 <a>）
+            const linkContents = buildContents('richtext', {
+                content: `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(displayText)}</a>`
+            });
             hideLinkDialog();
 
             if (linkMode === 'private') {
                 try {
-                    const newMsg = await safeInsertPrivateMsg(privateSessionId, currentUser, linkText);
+                    const newMsg = await safeInsertPrivateMsg(privateSessionId, currentUser, linkContents);
                     appendPrivateMsgLocally(newMsg, false);
                 } catch (e) {
                     const msg = e.message || '';
                     showSnackbar(msg.includes('隐私') || msg.includes('拒收') ? msg : '发送失败: ' + msg);
                 }
             } else {
-                const linkResult = await sendPublicMessageSecure({ text: linkText, is_system: false, msg_version: APP_VERSION });
+                // v099: 群聊链接发送（替代原公聊）
+                if (!currentGroupId) { showSnackbar('请先选择群聊'); return; }
+                const linkResult = await sendGroupMessageSecure(currentGroupId, { contents: linkContents, is_system: false });
                 if (!linkResult.success) showSnackbar('发送链接失败: ' + (linkResult.message || ''));
+                else if (linkResult.message) handleGroupMessage(currentGroupId, linkResult.message);
             }
         }
 
@@ -1042,12 +1039,13 @@
             if (sizeErr) { showSnackbar(sizeErr); return; }
             showSnackbar('正在上传文件...');
             const ext = file.name.split('.').pop() || 'file';
-            const filePath = `private/${privateSessionId}/${Date.now()}-${generateId()}.${ext}`;
+            const filePath = `private/${privateSessionId}/files/${Date.now()}-${generateId()}.${ext}`;
             try {
                 const url = await uploadToBucket(filePath, file, file.type || 'application/octet-stream');
                 if (!url) return;
                 const fileSize = (file.size / 1024).toFixed(1);
-                const content = _wrapMjV064('file', { name: file.name, size: fileSize, url: url }, '当前版本不支持查看，请更新MJChat版本');
+                // v101: 统一 contents 协议——私聊文件消息 file 类型
+                const content = buildContents('file', { url: url, name: file.name, size: fileSize });
                 try {
                     const newMsg = await safeInsertPrivateMsg(privateSessionId, currentUser, content);
                     appendPrivateMsgLocally(newMsg, true);
@@ -1081,9 +1079,20 @@
                     if (u.avatar_url) {
                         avatarStyle = 'background-image:url(' + escapeAttr(sanitizeAvatarUrl(u.avatar_url)) + ');background-size:cover;background-position:center;';
                     }
+                    // v097: 搜索结果快捷操作——已是好友直接发消息，否则一键发起好友申请（免好友私聊不受影响）
+                    let action = '';
+                    if (u.username && u.username !== currentUser) {
+                        const isF = (window.friendModule && (window.friendModule.isFriend(u.uid) || window.friendModule.isFriend(u.username)));
+                        if (isF) {
+                            action = '<button class="search-act-btn" onclick="event.stopPropagation();quickChat(' + Number(u.uid || 0) + ')">发消息</button>';
+                        } else {
+                            action = '<button class="search-act-btn primary" onclick="event.stopPropagation();showAddFriendDialog(' + Number(u.uid || 0) + ',\'' + escapeJsString(u.username) + '\')">添加好友</button>';
+                        }
+                    }
                     return `<div class="result-item" onclick="showUserProfile('${escapeJsString(u.username)}')">
                                 <div class="av av-${idx}" style="${avatarStyle}">${u.avatar_url ? '' : escapeHtml(u.username.charAt(0).toUpperCase())}</div>
                                 <span class="name">${escapeHtml(u.username)}</span>
+                                ${action}
                             </div>`;
                 }).join('');
             } catch (e) { container.innerHTML = '<div class="empty">搜索出错</div>'; }
@@ -1095,107 +1104,102 @@
         }
 
         // ============================================================
-        // 群文件：仅枚举公聊上传的媒体（media/chat/ 与 media/public/），
-        // 排除私聊媒体/头像/背景以及桶内配置、会话等敏感文件（后端同样强制过滤）
+        // v100: 群文件：仅枚举当前群的群文件（groups/<gid>/files/），
+        // 排除私聊附件/头像/背景以及桶内配置、会话等敏感文件（后端同样强制过滤）
         // ============================================================
         function showGroupFiles() {
+            if (!currentGroupId) { showSnackbar('请先选择群聊'); return; }
             pushPageHistory('groupFiles');
             switchPage('groupFilesPage', true);
             _loadGroupFiles();
         }
 
-        // v073 性能优化：群文件列表短期缓存（TTL 30s），频繁进入页面时跳过重复的 14 个并行请求
+        // v073 性能优化：群文件列表短期缓存（TTL 30s，按群隔离），频繁进入页面时跳过重复的并行请求
         let _groupFilesCache = null;
         const _GROUP_FILES_TTL = 30 * 1000;
+
+        /** 字节数格式化 */
+        function _fmtBytes(n) {
+            if (!n || n <= 0) return '0 B';
+            if (n > 1048576) return (n / 1048576).toFixed(1) + ' MB';
+            return (n / 1024).toFixed(1) + ' KB';
+        }
+
+        /** 群文件用量条（v100.x：直观展示本群群文件用量，含已用/上限与进度条） */
+        function _groupFilesUsageHtml(resp) {
+            const total = resp && resp.total_size ? resp.total_size : 0;
+            const max = resp && resp.max_size ? resp.max_size : 0;
+            const pct = max ? Math.min(100, (total / max) * 100) : 0;
+            return '<div class="gf-usage">' +
+                '<div class="gf-usage-text">群文件用量：<b>' + _fmtBytes(total) + '</b> / ' + _fmtBytes(max) + '</div>' +
+                '<div class="gf-usage-bar"><div class="gf-usage-bar-inner" style="width:' + pct.toFixed(1) + '%"></div></div>' +
+                '</div>';
+        }
 
         async function _loadGroupFiles(force) {
             const container = document.getElementById('groupFilesContainer');
             if (!container) return;
-            if (!force && _groupFilesCache && Date.now() - _groupFilesCache.at < _GROUP_FILES_TTL) {
-                _renderGroupFiles(_groupFilesCache.items);
+            if (!currentGroupId) { container.innerHTML = '<div class="gf-empty">请先选择群聊</div>'; return; }
+            const gid = currentGroupId;
+            if (!force && _groupFilesCache && _groupFilesCache.gid === gid && Date.now() - _groupFilesCache.at < _GROUP_FILES_TTL) {
+                _renderGroupFiles(_groupFilesCache.resp, gid);
                 return;
             }
             container.innerHTML = '<div style="display:flex;justify-content:center;padding:24px;"><span class="md-circular-loader"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span></div>';
             try {
-                const { data: files, error } = await s3.rpc('list_media', { p_prefix: 'media/' });
+                const { data, error } = await s3.rpc('list_media', { p_prefix: `groups/${gid}/files/`, p_uid: currentUid, p_session_token: getSessionToken() });
                 if (error) {
                     container.innerHTML = '<div class="gf-empty">加载失败: ' + (error.message || '未知错误') + '</div>';
                     return;
                 }
-                const allFiles = (Array.isArray(files) ? files : [])
+                // v100.x: list_media 返回 { files, total_size, file_count, max_size }；兼容旧数组响应
+                const arr = Array.isArray(data) ? data : (data && Array.isArray(data.files) ? data.files : []);
+                const files = arr
                     .filter(function(f) {
                         if (!f || !f.key) return false;
-                        // 安全过滤：群文件仅展示公聊上传的媒体（media/chat/ 图片/文件、media/public/ 语音/文件）。
-                        // 排除私聊媒体（media/private/）、用户头像（media/avatars/）、背景（media/background/），
-                        // 以及 media/ 之外的用户配置/会话/全局配置等敏感文件（后端已强制同样过滤，此为前端兜底）。
-                        return f.key.indexOf('media/chat/') === 0 || f.key.indexOf('media/public/') === 0;
+                        // 安全过滤：群文件仅展示当前群的「文件」（groups/<gid>/files/）。
+                        // 图片（image/）与语音（voice/）不计入群文件列表；后端已强制同样过滤，此为前端兜底。
+                        return f.key.indexOf(`groups/${gid}/files/`) === 0;
                     })
                     .sort(function(a, b) {
                         return new Date(b.created_at) - new Date(a.created_at);
                     });
-                if (allFiles.length === 0) {
-                    container.innerHTML = '<div class="gf-empty">暂无群文件</div>';
-                    return;
-                }
-                let html = '';
-                for (let idx = 0; idx < allFiles.length; idx++) {
-                    const file = allFiles[idx];
-                    const sizeStr = file.size ? (file.size > 1048576 ? (file.size / 1048576).toFixed(1) + ' MB' : (file.size / 1024).toFixed(1) + ' KB') : '';
-                    const dateStr = file.created_at ? new Date(file.created_at).toLocaleDateString('zh-CN') : '';
-                    const fileUrl = file.url || '';
-                    // 图片/视频：点击在预览器直接预览；其余文件：点击进入文件预览器（Office/代码/不支持）
-                    const ext = (file.name.split('.').pop() || '').toLowerCase();
-                    const isImage = IMAGE_EXTS.includes(ext);
-                    const isVideo = VIDEO_EXTS.includes(ext);
-                    if (isImage || isVideo) {
-                        const fileUrl = file.url || '';
-                        if (isImage) {
-                            html += '<div class="gf-file-item" onclick="previewImage(\'' + escapeJsString(fileUrl) + '\')">';
-                            html += '<div class="gf-file-icon"><img src="' + escapeAttr(fileUrl) + '" loading="lazy" onerror="this.style.display=\'none\'"></div>';
-                        } else {
-                            html += '<div class="gf-file-item" onclick="openVideoPreview(\'' + escapeJsString(fileUrl) + '\')">';
-                            html += '<div class="gf-file-icon"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M10 8.5v7l6-3.5-6-3.5zM12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg></div>';
-                        }
-                    } else {
-                        const iconHtml = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">' + getFileIconSvg(file.name) + '</svg>';
-                        const fileUrl = file.url || '';
-                        html += '<div class="gf-file-item" onclick="openFilePreview(\'' + escapeJsString(fileUrl) + '\', \'' + escapeJsString(file.name) + '\')">';
-                        html += '<div class="gf-file-icon">' + iconHtml + '</div>';
-                    }
-                    html += '<div class="gf-file-info"><div class="gf-file-name">' + escapeHtml(file.name) + '</div>';
-                    html += '<div class="gf-file-meta">' + (sizeStr ? sizeStr + ' · ' : '') + dateStr + '</div></div></div>';
-                }
-                container.innerHTML = html || '<div class="gf-empty">暂无群文件</div>';
+                const resp = {
+                    files: files,
+                    total_size: Array.isArray(data) && data.length
+                        ? data.reduce(function(s, f) { return s + (f.size || 0); }, 0)
+                        : (data && data.total_size) || 0,
+                    max_size: (data && data.max_size) || (256 * 1024 * 1024),
+                };
+                _groupFilesCache = { at: Date.now(), gid: gid, resp: resp };
+                _renderGroupFiles(resp, gid);
             } catch (e) {
                 container.innerHTML = '<div class="gf-empty">加载失败: ' + escapeHtml(e.message || '未知错误') + '</div>';
             }
         }
 
-        function _renderGroupFiles(allFiles) {
+        function _renderGroupFiles(resp, gid) {
             const container = document.getElementById('groupFilesContainer');
             if (!container) return;
-            if (!allFiles || allFiles.length === 0) {
-                container.innerHTML = '<div class="gf-empty">暂无群文件</div>';
+            const allFiles = (resp && resp.files) || [];
+            // v100.x: 管理员/群主可删除群文件
+            const isMod = currentGroupInfo && (currentGroupInfo.my_role === 'owner' || currentGroupInfo.my_role === 'admin');
+            let html = _groupFilesUsageHtml(resp);
+            if (!allFiles.length) {
+                html += '<div class="gf-empty">暂无群文件</div>';
+                container.innerHTML = html;
                 return;
             }
-            let html = '';
             for (let idx = 0; idx < allFiles.length; idx++) {
                 const file = allFiles[idx];
-                const sizeStr = file.metadata && file.metadata.size
-                    ? (file.metadata.size > 1048576
-                        ? (file.metadata.size / 1048576).toFixed(1) + ' MB'
-                        : (file.metadata.size / 1024).toFixed(1) + ' KB')
-                    : '';
+                const sizeStr = file.size ? _fmtBytes(file.size) : '';
                 const dateStr = file.created_at ? new Date(file.created_at).toLocaleDateString('zh-CN') : '';
-                const pf = file._prefix || '';
-                const bk = file._bucket || STORAGE_BUCKET;
+                const fileUrl = file.url || '';
                 // 图片/视频：点击在预览器直接预览；其余文件：点击进入文件预览器（Office/代码/不支持）
                 const ext = (file.name.split('.').pop() || '').toLowerCase();
                 const isImage = IMAGE_EXTS.includes(ext);
                 const isVideo = VIDEO_EXTS.includes(ext);
                 if (isImage || isVideo) {
-                    const { data: urlData } = sb.storage.from(bk).getPublicUrl(pf + file.name);
-                    const fileUrl = urlData ? urlData.publicUrl : '';
                     if (isImage) {
                         html += '<div class="gf-file-item" onclick="previewImage(\'' + escapeJsString(fileUrl) + '\')">';
                         html += '<div class="gf-file-icon"><img src="' + escapeAttr(fileUrl) + '" loading="lazy" onerror="this.style.display=\'none\'"></div>';
@@ -1205,15 +1209,36 @@
                     }
                 } else {
                     const iconHtml = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">' + getFileIconSvg(file.name) + '</svg>';
-                    const { data: urlData } = sb.storage.from(bk).getPublicUrl(pf + file.name);
-                    const fileUrl = urlData ? urlData.publicUrl : '';
                     html += '<div class="gf-file-item" onclick="openFilePreview(\'' + escapeJsString(fileUrl) + '\', \'' + escapeJsString(file.name) + '\')">';
                     html += '<div class="gf-file-icon">' + iconHtml + '</div>';
                 }
                 html += '<div class="gf-file-info"><div class="gf-file-name">' + escapeHtml(file.name) + '</div>';
-                html += '<div class="gf-file-meta">' + (sizeStr ? sizeStr + ' · ' : '') + dateStr + '</div></div></div>';
+                html += '<div class="gf-file-meta">' + (sizeStr ? sizeStr + ' · ' : '') + dateStr + '</div></div>';
+                if (isMod) {
+                    html += '<button class="gf-file-del" onclick="event.stopPropagation();deleteGroupFile(\'' + escapeJsString(file.key) + '\')">删除</button>';
+                }
+                html += '</div>';
             }
             container.innerHTML = html;
+        }
+
+        /** v100.x: 删除群文件（管理员/群主），删除后刷新列表与用量 */
+        async function deleteGroupFile(key) {
+            if (!currentGroupId || !key) return;
+            if (!window.confirm('确定删除该群文件吗？')) return;
+            try {
+                const { error } = await s3.rpc('delete_group_file', {
+                    p_uid: currentUid,
+                    p_session_token: getSessionToken(),
+                    p_group_id: currentGroupId,
+                    p_key: key
+                });
+                if (error) { showSnackbar('删除失败: ' + (error.message || '未知错误')); return; }
+                showSnackbar('已删除');
+                _loadGroupFiles(true);
+            } catch (e) {
+                showSnackbar('删除失败: ' + (e.message || '未知错误'));
+            }
         }
 
         function closeAgentList() {
@@ -1249,7 +1274,7 @@
                 activeAgent = null;
                 input.value = input.value.replace(/@[\w\u4e00-\u9fa5]+\s?/, '').trim();
                 autoResize(input);
-                togglePublicSendBtn();
+                toggleGroupSendBtn();
                 showSnackbar('已取消智能体');
                 return;
             }
@@ -1259,7 +1284,7 @@
             input.focus();
             input.setSelectionRange(input.value.length, input.value.length);
             autoResize(input);
-            togglePublicSendBtn();
+            toggleGroupSendBtn();
             showSnackbar(`已选择 ${agentName}，输入消息后发送`);
         }
 

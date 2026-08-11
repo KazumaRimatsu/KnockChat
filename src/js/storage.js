@@ -25,37 +25,10 @@
                 }, 800);
             }
         }
-        function markPublicRead(timestamp) {
-            const state = getUnreadState();
-            state.publicLastRead = timestamp || new Date().toISOString();
-            saveUnreadState(state);
-        }
         function markPrivateRead(sessionId, timestamp) {
             const state = getUnreadState();
             state.privateLastRead[sessionId] = timestamp || new Date().toISOString();
             saveUnreadState(state);
-        }
-        function restoreUnreadCounts() {
-            const state = getUnreadState();
-            const pubLastRead = state.publicLastRead;
-            publicUnread = 0;
-            // 群聊免打扰开启时不恢复红点
-            if (typeof _mutePublic !== 'undefined' && _mutePublic) return;
-            // v058: 以 lastLogin 时间为兜底基准——无 lastRead 记录时只统计上次登录后的消息，
-            // 不再把全部历史消息算作未读
-            const baseline = pubLastRead || getLastLoginTime() || null;
-            if (baseline) {
-                publicMessages.forEach(m => {
-                    if (!m.is_system && !isMsgFromMe(m) && new Date(m.created_at) > new Date(baseline)) {
-                        publicUnread++;
-                    }
-                });
-            } else {
-                publicMessages.forEach(m => {
-                    if (!m.is_system && !isMsgFromMe(m)) publicUnread++;
-                });
-            }
-            privateUnreadCounts = {};
         }
         function restorePrivateUnreadFromSessions() {
             const state = getUnreadState();
@@ -517,7 +490,7 @@
         // 数据按用户隔离（mjchat_msgcache_<username>）；登出保留（加密保存，同密码重新登录可恢复），注销账号时清除。
         // ============================================
         const MSG_CACHE_PREFIX = LS_KEYS.MSG_CACHE_PREFIX;
-        const MSG_CACHE_PUBLIC_LIMIT = 200;
+        const MSG_CACHE_GROUP_LIMIT = 200;  // v099: 群聊消息缓存每群上限（替代原公聊 MSG_CACHE_PUBLIC_LIMIT）
         const MSG_CACHE_PRIVATE_LIMIT = 200;
         const MSG_CACHE_MAX_SESSIONS = 20;
         let _msgCacheTimer = null;
@@ -529,6 +502,8 @@
         function _trimMsg(m) {
             if (!m || typeof m !== 'object') return null;
             const out = { id: m.id, sender: m.sender, sender_uid: m.sender_uid, created_at: m.created_at };
+            // v101: 统一消息内容协议——contents JSON 优先缓存；历史 text/content 字段兜底
+            if (m.contents) out.contents = m.contents;
             if (typeof m.text === 'string') out.text = m.text;
             if (typeof m.content === 'string') out.content = m.content;
             if (m.image_url) out.image_url = m.image_url;
@@ -605,8 +580,16 @@
                     });
                 }
                 _cachedSessions = Array.isArray(cache.sessions) ? cache.sessions : null;
+                // v099: 群聊消息缓存（按群隔离，离线兜底；服务端仍为准）
+                const groups = {};
+                if (cache.groups && typeof cache.groups === 'object') {
+                    Object.keys(cache.groups).forEach(gid => {
+                        const list = Array.isArray(cache.groups[gid]) ? cache.groups[gid] : [];
+                        if (list.length) groups[gid] = _sortMsgAsc(list.map(_trimMsg).filter(Boolean));
+                    });
+                }
                 return {
-                    public: _sortMsgAsc((Array.isArray(cache.public) ? cache.public : []).map(_trimMsg).filter(Boolean)),
+                    groups: groups,
                     private: _privateMsgCacheMap,
                     sessions: _cachedSessions
                 };
@@ -620,8 +603,11 @@
         async function saveChatMessageCache() {
             if (!_encryptionKey || !currentUser) return;
             try {
-                const pub = (typeof publicMessages !== 'undefined' && Array.isArray(publicMessages))
-                    ? _sortMsgAsc(publicMessages.slice(-MSG_CACHE_PUBLIC_LIMIT)).map(_trimMsg).filter(Boolean) : [];
+                // v099: 群聊消息缓存（按群隔离；仅缓存当前打开群，服务端为准）
+                const groups = {};
+                if (currentGroupId && typeof groupMessages !== 'undefined' && Array.isArray(groupMessages) && groupMessages.length) {
+                    groups[currentGroupId] = _sortMsgAsc(groupMessages.slice(-MSG_CACHE_GROUP_LIMIT)).map(_trimMsg).filter(Boolean);
+                }
                 const priv = {};
                 _privateMsgCacheOrder.slice(0, MSG_CACHE_MAX_SESSIONS).forEach(sid => {
                     const list = _privateMsgCacheMap[sid];
@@ -629,7 +615,7 @@
                 });
                 const payload = {
                     savedAt: new Date().toISOString(),
-                    public: pub,
+                    groups: groups,
                     private: priv,
                     sessions: _cachedSessions || undefined
                 };
@@ -801,15 +787,11 @@
                 }
             };
             const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'com.cika.chatapp:backup-' + new Date().toISOString().slice(0, 10) + '.json';
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
-            showSnackbar('设置已导出（AI API Key 已脱敏，导入后需重新输入）');
+            const fileName = 'knockchat-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+            saveBlobFile(fileName, blob).then(function(r) {
+                if (r === 'cancelled') return;
+                showSnackbar('设置已导出（AI API Key 已脱敏，导入后需重新输入）');
+            });
         }
 
         // 导入设置：选择 JSON 文件并确认后恢复设置

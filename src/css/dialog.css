@@ -798,3 +798,619 @@
 .theme-actions .md-button {
     flex: 1;
 }
+
+/* ==========================================================================
+   v099 群聊弹窗（创建群聊 / 群信息 / 群成员 / 群邀请 / 邀请好友）
+   ========================================================================== */
+
+/* --- 创建群聊 --- */
+#createGroupDialog .md-dialog {
+    max-width: 400px;
+}
+
+.cg-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.cg-avatar-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.cg-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--md-primary-container);
+    color: var(--md-primary);
+    font-size: 1.5rem;
+    font-weight: 700;
+    background-size: cover;
+    background-position: center;
+    cursor: pointer;
+    transition: filter 0.15s;
+}
+
+.cg-avatar:hover {
+    filter: brightness(0.95);
+}
+
+.cg-avatar-edit {
+    padding: 4px 12px;
+    border-radius: var(--radius-md);
+    background: var(--md-surface-container-high);
+    font-size: 0.8125rem;
+    color: var(--md-primary);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.cg-avatar-edit:hover {
+    background: var(--md-primary-container);
+}
+
+.cg-error {
+    display: none;
+    font-size: 0.8125rem;
+    color: var(--md-error);
+}
+
+.cg-error.show {
+    display: block;
+}
+
+.cg-member-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 4px;
+    font-size: 0.8125rem;
+    color: var(--md-dialog-text-muted);
+}
+
+.cg-member-count {
+    flex-shrink: 0;
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-primary);
+}
+
+.cg-member-list {
+    max-height: 200px;
+    margin-top: 4px;
+    overflow-y: auto;
+    border: var(--md-outline-width) var(--md-outline-style) var(--md-dialog-border);
+    border-radius: var(--radius-md);
+    background: var(--md-surface-container-lowest);
+}
+
+.cg-member-list .empty {
+    padding: 24px 0;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--md-dialog-text-dim);
+}
+
+.cg-member-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-dialog-border);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.cg-member-item:last-of-type {
+    border-bottom: none;
+}
+
+.cg-member-item:hover {
+    background: var(--md-dialog-btn-hover);
+}
+
+.cg-member-item .av {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    font-weight: 700;
+    color: var(--md-avatar-text);
+}
+
+.cg-member-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.875rem;
+    color: var(--md-dialog-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cg-member-check {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    accent-color: var(--md-primary);
+}
+
+/* --- 群聊信息 --- */
+#groupInfoDialog .md-dialog {
+    max-width: 400px;
+}
+
+.gi-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.gi-head {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 0;
+}
+
+.gi-head .av {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--md-avatar-text);
+}
+
+.gi-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 1.0625rem;
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-dialog-text);
+}
+
+.gi-sub {
+    font-size: 0.8125rem;
+    color: var(--md-dialog-text-muted);
+}
+
+.gi-desc {
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: var(--md-surface-container-low);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--md-dialog-text);
+}
+
+.gi-muted {
+    color: var(--md-dialog-text-dim);
+}
+
+.gi-meta {
+    font-size: 0.75rem;
+    color: var(--md-dialog-text-dim);
+    word-break: break-all;
+}
+
+/* --- 群成员 --- */
+#groupMembersDialog .md-dialog {
+    max-width: 400px;
+}
+
+.gm-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 55vh;
+    margin-top: 8px;
+    overflow-y: auto;
+}
+
+.gm-list .empty {
+    padding: 24px 0;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--md-dialog-text-dim);
+}
+
+.gm-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-dialog-border);
+}
+
+.gm-item:last-of-type {
+    border-bottom: none;
+}
+
+.gm-item .av {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    font-weight: 700;
+    color: var(--md-avatar-text);
+}
+
+.gm-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.gm-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.9375rem;
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-dialog-text);
+}
+
+.gm-me-tag {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--md-surface-container-high);
+    font-size: 0.625rem;
+    color: var(--md-dialog-text-dim);
+}
+
+.gm-joined {
+    font-size: 0.75rem;
+    color: var(--md-dialog-text-dim);
+}
+
+/* v100.x: 成员管理操作（管理员/群主） */
+.gm-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.gm-btn {
+    flex-shrink: 0;
+    padding: 3px 10px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--md-surface-container-high);
+    font-size: 0.75rem;
+    color: var(--md-dialog-text);
+    cursor: pointer;
+}
+
+.gm-btn:hover {
+    background: var(--md-surface-container-highest);
+}
+
+.gm-btn-danger {
+    background: var(--md-error-container);
+    color: var(--md-on-error-container);
+}
+
+.gm-btn-danger:hover {
+    opacity: 0.85;
+}
+
+.gm-mute-tag {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--md-error-container);
+    font-size: 0.625rem;
+    color: var(--md-on-error-container);
+}
+
+.gm-mute-note {
+    margin-top: 8px;
+    font-size: 0.75rem;
+}
+
+/* v100.x: 群资料编辑弹窗 */
+#groupInfoEditDialog .md-dialog {
+    max-width: 400px;
+}
+
+.gie-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-top: 8px;
+}
+
+.gie-avatar-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.gie-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+    font-size: 1.6rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.gie-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.gie-field label {
+    font-size: 0.8125rem;
+    color: var(--md-dialog-text-dim);
+}
+
+.gie-desc {
+    resize: vertical;
+    min-height: 72px;
+}
+
+.gie-error {
+    display: none;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--md-error-container);
+    font-size: 0.8125rem;
+    color: var(--md-on-error-container);
+}
+
+.gie-error.show {
+    display: block;
+}
+
+/* v100.x: 禁言时长选择弹窗 */
+#groupMuteDialog .md-dialog {
+    max-width: 360px;
+}
+
+.gm-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.gm-hint {
+    font-size: 0.75rem;
+}
+
+.gm-presets {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.gm-presets .gm-btn {
+    padding: 8px 0;
+    text-align: center;
+}
+
+.gm-unmute {
+    align-self: flex-start;
+}
+
+/* v102: 禁言弹窗从成员/群管理弹窗之上打开，需高于普通弹窗遮罩 200，修复被成员弹窗遮挡 */
+#groupMuteDialog {
+    z-index: 260;
+}
+
+/* v102: 自定义禁言时长（数值 + 单位） */
+.gm-custom {
+    border-top: 1px solid var(--md-outline-variant);
+    padding-top: 10px;
+}
+
+.gm-custom-title {
+    font-size: 0.75rem;
+    color: var(--md-on-surface-variant);
+    margin-bottom: 6px;
+}
+
+.gm-custom-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.gm-custom-input {
+    flex: 1;
+    min-width: 0;
+}
+
+.gm-custom-unit {
+    width: 84px;
+    flex-shrink: 0;
+}
+
+.gm-custom-btn {
+    flex-shrink: 0;
+}
+
+/* v102: 群管理弹窗 */
+#groupManageDialog .md-dialog {
+    max-width: 360px;
+}
+
+.gmg-list {
+    display: flex;
+    flex-direction: column;
+    margin-top: 8px;
+}
+
+.gmg-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 14px 4px;
+    border: none;
+    border-bottom: 1px solid var(--md-outline-variant);
+    background: transparent;
+    color: var(--md-dialog-text);
+    font-size: 0.9375rem;
+    cursor: pointer;
+    text-align: left;
+}
+
+.gmg-row:last-child {
+    border-bottom: none;
+}
+
+.gmg-row svg {
+    width: 20px;
+    height: 20px;
+    fill: var(--md-on-surface-variant);
+    flex-shrink: 0;
+}
+
+.gmg-row.gmg-danger {
+    color: var(--md-error);
+}
+
+.gmg-row.gmg-danger svg {
+    fill: var(--md-error);
+}
+
+.gmg-chev {
+    margin-left: auto;
+    color: var(--md-on-surface-variant);
+    font-size: 1.1rem;
+}
+
+/* --- 收到群邀请 --- */
+#groupInvitesDialog .md-dialog {
+    max-width: 400px;
+}
+
+.ginv-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 55vh;
+    margin-top: 8px;
+    overflow-y: auto;
+}
+
+.ginv-list .empty {
+    padding: 24px 0;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--md-dialog-text-dim);
+}
+
+.ginv-done-title {
+    margin: 10px 0 4px;
+    font-size: 0.75rem;
+    color: var(--md-dialog-text-dim);
+}
+
+.ginv-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-dialog-border);
+}
+
+.ginv-item:last-of-type {
+    border-bottom: none;
+}
+
+.ginv-item .av {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    font-weight: 700;
+    color: var(--md-avatar-text);
+}
+
+.ginv-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.ginv-name {
+    font-size: 0.9375rem;
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-dialog-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ginv-from {
+    font-size: 0.75rem;
+    color: var(--md-dialog-text-dim);
+}
+
+.ginv-msg {
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: var(--md-dialog-text-muted);
+}
+
+.ginv-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 4px;
+}
+
+.ginv-btn {
+    padding: 4px 12px;
+    border-radius: var(--radius-md);
+    font-size: 0.8125rem;
+}
+
+.ginv-btn:hover {
+    background: var(--md-dialog-btn-hover);
+}
+
+.ginv-status {
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    color: var(--md-dialog-text-dim);
+}

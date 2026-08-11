@@ -9,22 +9,30 @@ KnockChat 管理工具（BELL）
 功能：
   1. 用户管理：浏览用户、细分限制（登录/公聊文字/公聊媒体链接/新私聊/私聊消息/改头像背景）、
      定时解封、强制下线（清除会话）、查看详情
-  2. 消息管理：公聊消息搜索与删除（可选连带删除关联媒体文件）。
-     私聊消息涉及用户隐私，本工具不提供私聊管理。
-  3. 群文件：按前缀浏览媒体对象（群文件/私聊附件/头像/背景），删除选中或清空
+  2. 群文件：按前缀浏览媒体对象（群文件/私聊附件/头像/背景/表情），删除选中或清空
+     （v100：公聊已移除，群媒体位于 groups/<gid>/files/，私聊消息涉及用户隐私，本工具不提供私聊管理。）
 
-数据存储结构（与 src-tauri/src/s3rpc.rs 一致）：
-  users/<uid>.json            用户资料
+数据存储结构（v100 目录式，详见 docs/s3-config-guide.md）：
+  users/<uid>/info.json        用户资料
                                banned=true 完全封禁（登录限制）
                                restrictions.<name> = {enabled, until} 细分限制
                                until 为 ISO-8601 到期时间，后端到期自动解封（懒清除）
-  users/_index.json           { username: uid } 统一索引
-  users/_meta.json            { next_uid }
-  sessions/<token>.json       登录会话
-  public/messages/<id>.json   公聊消息
-  private/sessions/<sid>.json 私聊会话（sid = 较小uid__较大uid）
-  private/messages/<sid>/<id>.json 私聊消息
-  media/<chat|public|private|avatars|background>/... 媒体对象
+  users/<uid>/friends.json     好友列表（含好友分组）；users/<uid>/groups.json 用户群索引
+  users/_index.json            { username: uid } 统一索引
+  users/_meta.json             { next_uid }
+  sessions/<token>.json        登录会话
+  groups/<gid>/info.json       群聊基础信息；groups/_meta.json
+  groups/<gid>/members.json    群成员表
+  groups/<gid>/messages/<id>.json 群消息（id 即时间序）
+  groups/<gid>/files/          群文件（每群 ≤256MB）
+  invites/<uid>/groups.json    群邀请列表（收发双向同文件）
+  invites/<uid>/friends.json   好友申请列表（收发双向同文件）
+  private/<sid>.json           私聊会话（sid = 较小uid__较大uid）
+  private/<sid>/messages/<id>.json 私聊消息
+  private/<sid>/files/         私聊附件（每会话 ≤32MB）
+  resrc/usr_ava/、usr_bkg/、group_ava/  用户头像/主页背景/群头像
+  media/emoji/                 用户表情（v100 保留历史前缀）
+
 
 运行：python bell.py            （图形界面）
       python bell.py --selftest  （仅测试连接并统计，不启动 GUI）
@@ -182,16 +190,6 @@ class Store:
         data = self.rpc("kick_user_sessions", {"uid": uid})
         return data.get("deleted", 0)
 
-    # ---- 公聊消息 ----
-
-    def list_public_messages(self, limit=800):
-        """返回最新 limit 条公聊消息"""
-        return self.rpc("list_public_messages", {"limit": limit}) or []
-
-    def delete_public_message(self, msg_id, delete_media=False):
-        """删除消息；delete_media=True 时服务端连带删除关联媒体对象"""
-        self.rpc("delete_public_message", {"msg_id": msg_id, "delete_media": delete_media})
-
     # ---- 细分限制（restrictions） ----
 
     # 限制项 → 中文名（与后端 s3rpc.rs restriction_msg 对应）
@@ -242,10 +240,12 @@ class Store:
     # ---- 媒体 ----
 
     MEDIA_PREFIXES = {
-        "群文件（图片/文件，media/chat + media/public）": ["media/chat/", "media/public/"],
-        "私聊附件（media/private/）": ["media/private/"],
-        "用户头像（media/avatars/）": ["media/avatars/"],
-        "主页背景（media/background/）": ["media/background/"],
+        "群文件（groups/<gid>/files/）": ["groups/"],
+        "私聊附件（private/<sid>/files/）": ["private/"],
+        "用户头像（resrc/usr_ava/）": ["resrc/usr_ava/"],
+        "主页背景（resrc/usr_bkg/）": ["resrc/usr_bkg/"],
+        "群头像（resrc/group_ava/）": ["resrc/group_ava/"],
+        "表情（media/emoji/）": ["media/emoji/"],
     }
 
     def list_media(self, prefix):
@@ -253,7 +253,7 @@ class Store:
         return self.rpc("list_media", {"prefix": prefix}) or []
 
     def delete_media(self, keys):
-        """批量删除媒体对象（服务端校验 media/ 前缀，防误删非媒体对象）"""
+        """批量删除媒体对象（服务端校验新结构媒体前缀，防误删非媒体对象）"""
         data = self.rpc("delete_media", {"keys": list(keys)})
         return data.get("deleted", 0)
 
@@ -331,26 +331,6 @@ def fmt_size(n):
     return f"{n:.1f}GB"
 
 
-def msg_kind(msg):
-    if msg.get("is_system"):
-        return "系统"
-    if msg.get("image_url"):
-        return "图片"
-    if msg.get("audio_url"):
-        return "语音"
-    return "文本"
-
-
-def msg_preview(msg, maxlen=40):
-    if msg.get("is_system"):
-        return "[系统] " + (msg.get("text") or "")[:maxlen]
-    if msg.get("image_url"):
-        return "[图片] " + (msg.get("text") or "")[:maxlen]
-    if msg.get("audio_url"):
-        return "[语音] " + (msg.get("text") or "")[:maxlen]
-    return (msg.get("text") or msg.get("content") or "")[:maxlen]
-
-
 # ---------------------------------------------------------------------------
 # GUI
 # ---------------------------------------------------------------------------
@@ -390,7 +370,6 @@ class App:
         self.nb = ttk.Notebook(self.root)
         self.nb.pack(fill="both", expand=True, padx=8, pady=4)
         self._build_users_tab()
-        self._build_messages_tab()
         self._build_media_tab()
         self._build_update_tab()
 
@@ -425,45 +404,6 @@ class App:
             self.user_tree.heading(c, text=t)
             self.user_tree.column(c, width=w, anchor="w")
         self.user_tree.pack(fill="both", expand=True, padx=6, pady=(0, 6))
-
-    def _build_messages_tab(self):
-        tab = ttk.Frame(self.nb)
-        self.nb.add(tab, text="消息管理（公聊）")
-
-        # 顶部操作条
-        mode = ttk.Frame(tab, padding=6)
-        mode.pack(fill="x")
-        ttk.Label(mode, text="私聊消息涉及用户隐私，本工具不提供私聊管理。",
-                  foreground="#999").pack(side="left")
-        self.delete_media_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(mode, text="删除消息时连带删除关联媒体文件",
-                        variable=self.delete_media_var).pack(side="right")
-
-        # 公聊过滤区
-        self.pub_bar = ttk.Frame(tab, padding=6)
-        ttk.Label(self.pub_bar, text="按发送者（UID/昵称）：").pack(side="left")
-        self.pub_sender = tk.StringVar()
-        ttk.Entry(self.pub_bar, textvariable=self.pub_sender, width=14).pack(side="left", padx=4)
-        ttk.Label(self.pub_bar, text="关键词：").pack(side="left")
-        self.pub_kw = tk.StringVar()
-        ttk.Entry(self.pub_bar, textvariable=self.pub_kw, width=20).pack(side="left", padx=4)
-        ttk.Button(self.pub_bar, text="搜索", command=self.refresh_public).pack(side="left", padx=6)
-        ttk.Button(self.pub_bar, text="删除选中", command=self.on_delete_public_selected).pack(side="left")
-        ttk.Button(self.pub_bar, text="删除筛选结果", command=self.on_delete_public_filtered).pack(side="left", padx=4)
-
-        self.pub_bar.pack(fill="x")
-
-        cols = ("time", "sender", "kind", "preview", "id")
-        self.msg_tree = ttk.Treeview(tab, columns=cols, show="headings", selectmode="extended")
-        heads = {"time": ("时间", 140), "sender": ("发送者", 120), "kind": ("类型", 50),
-                 "preview": ("内容", 400), "id": ("消息ID", 190)}
-        for c, (t, w) in heads.items():
-            self.msg_tree.heading(c, text=t)
-            self.msg_tree.column(c, width=w, anchor="w")
-        self.msg_tree.pack(fill="both", expand=True, padx=6, pady=(0, 6))
-
-        self.msg_count = tk.StringVar(value="")
-        ttk.Label(tab, textvariable=self.msg_count).pack(anchor="w", padx=8, pady=(0, 4))
 
     def _build_media_tab(self):
         tab = ttk.Frame(self.nb)
@@ -815,63 +755,6 @@ class App:
         ]
         tk.messagebox.showinfo("用户详情", "\n".join(lines), parent=self.root)
 
-    # ---------------- 消息管理 ----------------
-
-    def refresh_public(self):
-        self._bg(lambda: self.store.list_public_messages(), self._render_public)
-
-    def _matches_public(self, msg):
-        q_sender = self.pub_sender.get().strip().lower()
-        q_kw = self.pub_kw.get().strip().lower()
-        if q_sender:
-            sender = str(msg.get("sender_uid") or "").lower()
-            name = str(msg.get("sender") or "").lower()
-            if q_sender not in sender and q_sender not in name:
-                return False
-        if q_kw:
-            text = (msg.get("text") or "").lower()
-            if q_kw not in text:
-                return False
-        return True
-
-    def _render_public(self, msgs):
-        self.msg_tree.delete(*self.msg_tree.get_children())
-        shown = 0
-        for m in msgs:
-            if not self._matches_public(m):
-                continue
-            shown += 1
-            self.msg_tree.insert("", "end", iid=str(m.get("id")), values=(
-                fmt_time(m.get("created_at")),
-                f"{m.get('sender', '')}（{m.get('sender_uid', '-')}）",
-                msg_kind(m), msg_preview(m), m.get("id")))
-        self.msg_count.set(f"共 {len(msgs)} 条，筛选后 {shown} 条（最多加载 800 条）")
-
-    def on_delete_public_selected(self):
-        ids = self.msg_tree.selection()
-        if not ids:
-            self.log("请先选择要删除的消息")
-            return
-        self._confirm_delete_public(list(ids), f"确定删除选中的 {len(ids)} 条公聊消息吗？")
-
-    def on_delete_public_filtered(self):
-        ids = [self.msg_tree.item(i, "values")[4] for i in self.msg_tree.get_children()]
-        if not ids:
-            self.log("当前筛选结果为空")
-            return
-        self._confirm_delete_public(ids, f"确定删除当前筛选出的 {len(ids)} 条公聊消息吗？")
-
-    def _confirm_delete_public(self, ids, prompt):
-        if not self.confirm(prompt):
-            return
-        del_media = self.delete_media_var.get()
-        self._bg(lambda: [self.store.delete_public_message(i, del_media) for i in ids],
-                 lambda r: self._after_delete_public(ids))
-
-    def _after_delete_public(self, ids):
-        self.log(f"已删除 {len(ids)} 条公聊消息")
-        self.refresh_public()
-
     # ---------------- 群文件 ----------------
 
     def refresh_media(self):
@@ -926,9 +809,9 @@ class App:
         if idx == 0:
             self.refresh_users()
         elif idx == 1:
-            self.refresh_public()
-        else:
             self.refresh_media()
+        else:
+            self.refresh_update_info()
 
     def on_reconnect(self):
         """直接按当前配置重建连接并刷新数据，不再弹出设置窗口"""
@@ -972,8 +855,7 @@ class App:
             "功能：\n"
             "  · 用户管理：浏览账户、细分限制（禁止登录 / 公聊文字 / 公聊媒体与链接 /\n"
             "     发起新私聊 / 私聊消息 / 修改头像与背景）、定时解封、强制下线\n"
-            "  · 消息管理：搜索并删除公聊消息（可选连带删除关联媒体文件）\n"
-            "  · 群文件：按前缀浏览与删除媒体对象\n"
+            "  · 群文件：按前缀浏览与删除媒体对象（群文件 / 私聊附件 / 头像 / 背景）\n"
             "\n"
             "隐私说明：私聊消息涉及用户隐私，本工具不提供私聊管理。\n"
             "\n"
@@ -1040,8 +922,6 @@ def selftest(cfg):
               f"banned={u.get('banned')}  限制: {rs}  created={fmt_time(u.get('created_at'))}")
     if len(users) > 20:
         print(f"  … 其余 {len(users)-20} 个略")
-    pm = store.list_public_messages()
-    print(f"公聊消息        : {len(pm)} 条（最新 {len(pm)} 条内）")
     for p in Store.MEDIA_PREFIXES:
         items = store.list_media(p)
         total = sum(i.get("size", 0) for i in items)

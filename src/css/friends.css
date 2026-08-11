@@ -1,0 +1,257 @@
+/* KnockChat 好友功能样式（v097） */
+
+/* ==================== 好友列表页 ==================== */
+/* 注意：页面容器复用 base.css 的 .page / .page.active（display:none|flex），
+   此处不能设置 display，否则会覆盖 .page { display:none } 导致页面常驻显示 */
+
+.friends-requests-entry {
+    flex-shrink: 0;
+    margin: 10px 14px 0;
+    padding: 10px 14px;
+    border-radius: 12px;
+    background: var(--md-primary-bg, rgba(26, 115, 232, 0.12));
+    color: var(--md-primary, #1a73e8);
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.friends-scroll,
+.add-friend-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* 分组 */
+.fr-group { margin-bottom: 10px; }
+.fr-group-head {
+    display: flex;
+    align-items: center;
+    padding: 8px 4px;
+    cursor: pointer;
+    user-select: none;
+    border-radius: 8px;
+}
+.fr-group-head:hover { background: var(--md-hover-bg, rgba(128, 128, 128, 0.08)); }
+.fr-group-caret { font-size: 0.75rem; color: var(--md-muted); width: 16px; }
+.fr-group-name { font-size: 0.875rem; font-weight: var(--md-font-weight-medium, 500); color: var(--md-text); }
+.fr-group-count { margin-left: 6px; font-size: 0.75rem; color: var(--md-muted); }
+.fr-group-ops { margin-left: auto; display: flex; gap: 4px; }
+.fr-op-btn {
+    border: none;
+    background: transparent;
+    color: var(--md-muted);
+    font-size: 0.75rem;
+    padding: 2px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.fr-op-btn:hover { background: var(--md-hover-bg, rgba(128, 128, 128, 0.12)); color: var(--md-text); }
+
+.fr-group-body { display: flex; flex-direction: column; }
+
+/* 好友项 */
+.fr-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 6px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.fr-item:hover { background: var(--md-hover-bg, rgba(128, 128, 128, 0.08)); }
+.fr-item .av-wrap { position: relative; flex-shrink: 0; }
+.fr-item .av { width: 42px; height: 42px; border-radius: 50%; font-size: 0.9375rem; }
+.fr-av-dot {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--md-muted, #9e9e9e);
+    border: 2px solid var(--md-bg, #fff);
+}
+.fr-av-dot.online { background: #22c55e; }
+.fr-info { flex: 1; min-width: 0; margin-left: 12px; }
+.fr-name { font-size: 0.9375rem; color: var(--md-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-sub { font-size: 0.8125rem; color: var(--md-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-actions { margin-left: 8px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.fr-chat-btn {
+    border: none;
+    background: var(--md-primary-bg, rgba(26, 115, 232, 0.12));
+    color: var(--md-primary, #1a73e8);
+    font-size: 1rem;
+    padding: 6px 10px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+.fr-chat-btn:hover { opacity: 0.85; }
+
+/* ==================== 添加好友页 ==================== */
+.friend-search-box {
+    display: flex;
+    gap: 8px;
+    padding: 4px 0 12px;
+}
+.friend-search-box input {
+    flex: 1;
+    min-width: 0;
+    height: 38px;
+    padding: 0 12px;
+    border-radius: 20px;
+    border: 1px solid var(--md-outline, rgba(128, 128, 128, 0.3));
+    background: var(--md-input-bg, transparent);
+    color: var(--md-text);
+    font-size: 0.875rem;
+    outline: none;
+}
+.friend-search-box input:focus { border-color: var(--md-primary, #1a73e8); }
+.fr-btn {
+    border: none;
+    border-radius: 16px;
+    padding: 6px 14px;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    background: var(--md-hover-bg, rgba(128, 128, 128, 0.12));
+    color: var(--md-text);
+    white-space: nowrap;
+}
+.fr-btn.primary { background: var(--md-primary, #1a73e8); color: var(--md-on-primary, #fff); }
+.fr-btn.danger { background: rgba(220, 38, 38, 0.12); color: var(--md-error, #dc2626); }
+
+.fr-search-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 6px;
+    border-radius: 10px;
+    cursor: pointer;
+}
+.fr-search-item:hover { background: var(--md-hover-bg, rgba(128, 128, 128, 0.08)); }
+.fr-search-item .av { width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0; font-size: 0.9375rem; }
+
+.fr-state { font-size: 0.75rem; color: var(--md-muted); margin-left: 6px; }
+.fr-state.ok { color: #22c55e; }
+.fr-state.fail { color: var(--md-error, #dc2626); }
+
+/* 申请区 */
+.req-section { margin-top: 14px; }
+.req-section-title {
+    font-size: 0.8125rem;
+    color: var(--md-muted);
+    padding: 6px 4px;
+    border-bottom: 1px solid var(--md-outline, rgba(128, 128, 128, 0.15));
+    margin-bottom: 6px;
+}
+.fr-req-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 6px;
+    border-radius: 10px;
+}
+.fr-req-item .av { width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0; font-size: 0.875rem; }
+.fr-req-info { flex: 1; min-width: 0; margin-left: 10px; }
+.fr-req-name { font-size: 0.875rem; color: var(--md-text); }
+.fr-req-msg { font-size: 0.8125rem; color: var(--md-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-req-time { font-size: 0.75rem; color: var(--md-muted); }
+.fr-req-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* ==================== 用户详情页：好友操作栏 ==================== */
+.ud-action-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 16px 14px;
+}
+.ud-act-btn {
+    border: 1px solid var(--md-outline, rgba(128, 128, 128, 0.3));
+    background: transparent;
+    color: var(--md-text);
+    border-radius: 16px;
+    padding: 6px 14px;
+    font-size: 0.8125rem;
+    cursor: pointer;
+}
+.ud-act-btn:hover { background: var(--md-hover-bg, rgba(128, 128, 128, 0.1)); }
+.ud-act-btn.primary {
+    background: var(--md-primary, #1a73e8);
+    border-color: transparent;
+    color: var(--md-on-primary, #fff);
+}
+.ud-act-btn.danger { color: var(--md-error, #dc2626); border-color: rgba(220, 38, 38, 0.4); }
+
+/* ==================== 好友专属消息标记 ==================== */
+.fr-list-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 0.6875rem;
+    background: var(--md-primary-bg, rgba(26, 115, 232, 0.12));
+    color: var(--md-primary, #1a73e8);
+    vertical-align: 1px;
+}
+.fr-msg-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 8px;
+    font-size: 0.6875rem;
+    background: var(--md-primary-bg, rgba(26, 115, 232, 0.12));
+    color: var(--md-primary, #1a73e8);
+    vertical-align: 1px;
+}
+.private-friend-tag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 0.6875rem;
+    background: var(--md-primary-bg, rgba(26, 115, 232, 0.12));
+    color: var(--md-primary, #1a73e8);
+    vertical-align: 2px;
+}
+
+/* ==================== 通用对话框 ==================== */
+.fr-dialog-body { padding: 8px 0 4px; }
+.fr-dialog-hint { font-size: 0.75rem; color: var(--md-muted); margin-top: 6px; }
+.fr-dialog-body .md-text-field {
+    width: 100%;
+    box-sizing: border-box;
+    height: 40px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--md-outline, rgba(128, 128, 128, 0.3));
+    background: var(--md-input-bg, transparent);
+    color: var(--md-text);
+    font-size: 0.875rem;
+    outline: none;
+}
+.fr-picker-list { padding: 8px 0 4px; max-height: 40vh; overflow-y: auto; }
+.fr-picker-item {
+    padding: 11px 14px;
+    font-size: 0.875rem;
+    color: var(--md-text);
+    border-radius: 8px;
+    cursor: pointer;
+}
+.fr-picker-item:hover { background: var(--md-hover-bg, rgba(128, 128, 128, 0.08)); }
+.fr-picker-item.selected { color: var(--md-primary, #1a73e8); font-weight: var(--md-font-weight-medium, 500); }
+
+/* 搜索结果里的好友快捷操作按钮 */
+.search-act-btn {
+    margin-left: auto;
+    flex-shrink: 0;
+    border: none;
+    border-radius: 15px;
+    padding: 5px 12px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    background: var(--md-hover-bg, rgba(128, 128, 128, 0.12));
+    color: var(--md-text);
+}
+.search-act-btn.primary {
+    background: var(--md-primary, #1a73e8);
+    color: var(--md-on-primary, #fff);
+}

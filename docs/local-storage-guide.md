@@ -27,7 +27,7 @@
 ### 加密配置包含的子设置（解密后）
 
 - 主题、主题色
-- 未读状态 `{publicLastRead, privateLastRead}`
+- 未读状态 `{publicLastRead, privateLastRead}`（`publicLastRead` 为公聊遗留字段，公聊移除后恒为 `null`）
 - 已关闭的隐私横幅集合
 - 通知设置 `{showNotify, public, private, mention, sound, sampleRate}`
 
@@ -44,7 +44,7 @@
 
 | 键                            | LS\_KEYS 常量        | 用途                      |
 | ---------------------------- | ------------------ | ----------------------- |
-| `mjchat_msgcache_<username>` | `MSG_CACHE_PREFIX` | 聊天记录加密缓存（公聊/私聊历史，供离线浏览） |
+| `mjchat_msgcache_<username>` | `MSG_CACHE_PREFIX` | 聊天记录加密缓存（群聊/私聊历史，供离线浏览；群聊按 gid 隔离，每群上限 200 条） |
 
 ## 5. 媒体缓存（localStorage）
 
@@ -73,7 +73,8 @@
 
 | 键                           | LS\_KEYS 常量     | 用途                               |
 | --------------------------- | --------------- | -------------------------------- |
-| `mjchat_public_muted`       | `PUBLIC_MUTED`  | 公聊免打扰（`'1'`/`'0'`）               |
+| `mjchat_public_muted`       | `PUBLIC_MUTED`  | 公聊免打扰（`'1'`/`'0'`；公聊已移除，兼容清理用）  |
+| `mjchat_group_muted`        | `GROUP_MUTED`   | 群聊免打扰（`{gid: true}`，v099）               |
 | `mjchat_private_muted`      | `PRIVATE_MUTED` | 私聊会话免打扰（`{sessionId: true}`）     |
 | `mjchat_blockword_settings` | `BLOCKWORD`     | 屏蔽词设置 `{enabled, types, method}` |
 | `mjchat_page_stack`         | `PAGE_STACK`    | 页面导航栈（恢复上次所在页）                   |
@@ -98,7 +99,7 @@
 
 ## 11. 云端设置同步（跨设备）
 
-**必要且适合跨设备云同步的用户设置**会上传到服务端（S3 `users/<uid>.json` 的 `cloud_settings` 字段），实现换设备登录自动恢复。冲突策略：**云端为权威**——登录/会话恢复后拉取云端设置覆盖本地；本地设置变更后防抖（1.2s）推送云端。
+**必要且适合跨设备云同步的用户设置**会上传到服务端（S3 `users/<uid>/info.json` 的 `cloud_settings` 字段），实现换设备登录自动恢复。冲突策略：**云端为权威**——登录/会话恢复后拉取云端设置覆盖本地；本地设置变更后防抖（1.2s）推送云端。
 
 ### 同步范围
 
@@ -108,7 +109,7 @@
 | 屏蔽词   | `{enabled, types, method}` | `blockword` |
 | AI 设置 | 模型配置与翻译配置（**含 API Key**）   | `ai`        |
 
-**不同步（设备本地数据）**：未读状态、已关闭横幅列表、自定义主题定义（仅同步当前激活主题 id）、私聊会话与聊天记录缓存、公开/私聊免打扰标记。
+**不同步（设备本地数据）**：未读状态、已关闭横幅列表、自定义主题定义（仅同步当前激活主题 id）、私聊会话与聊天记录缓存、群聊/私聊免打扰标记。
 
 ### 加密与安全
 

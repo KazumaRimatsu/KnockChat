@@ -56,6 +56,22 @@
             } catch (e) { return null; }
         }
 
+        // 按 URL 取回已缓存的图片字节（blob），供保存图片等场景复用已验证的有效数据。
+        // 原始预签名链接可能已过期，但缓存键为 mediaUrlToPublic 规范化后的公开直链，永续有效。
+        async function getCachedImageBlob(url) {
+            const norm = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
+            if (!norm || typeof caches === 'undefined' || !/^https?:\/\//i.test(norm)) return null;
+            try {
+                const cache = await _imgCache();
+                if (!cache) return null;
+                const res = await cache.match(norm);
+                if (!res) return null;
+                const blob = await res.blob();
+                if (!blob || !blob.size) return null;
+                return blob;
+            } catch (e) { return null; }
+        }
+
         async function _fetchAndCacheImage(url) {
             try {
                 // v073：AbortController 超时，避免坏 URL 长时间挂起

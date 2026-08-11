@@ -1,0 +1,71 @@
+{
+  "generated_at": "2026-08-11T15:12:50.518074+00:00",
+  "bucket": "knockchat",
+  "note": "清除全部聊天消息：被删除对象清单（内容不下载，仅记录 key/大小/时间）",
+  "executed": true,
+  "groups": {
+    "1": {
+      "messages": [
+        {
+          "key": "groups/1/messages/19ff122a4aafb21809545e69f63.json",
+          "size": 277
+        },
+        {
+          "key": "groups/1/messages/19ff12e208bdd94e70461b940b3.json",
+          "size": 247
+        }
+      ]
+    }
+  },
+  "private_sessions": [
+    {
+      "key": "private/1__4.json",
+      "size": 240
+    },
+    {
+      "key": "private/1__6.json",
+      "size": 256
+    }
+  ],
+  "private_chats": {
+    "1__4": {
+      "messages": [
+        {
+          "key": "private/1__4/messages/19fe5db7bd899b0052b2292a814.json",
+          "size": 197
+        },
+        {
+          "key": "private/1__4/messages/19fe5df23c3bbf3a205be46ab1f.json",
+          "size": 188
+        },
+        {
+          "key": "private/1__4/messages/19fe5e436bc312b0dd8263e3f21.json",
+          "size": 547
+        },
+        {
+          "key": "private/1__4/messages/19feb30ec1f59003fa0363c9375.json",
+          "size": 185
+        },
+        {
+          "key": "private/1__4/messages/19feca762a86a1ce4e3b222e8e4.json",
+          "size": 185
+        }
+      ]
+    },
+    "1__6": {
+      "messages": [
+        {
+          "key": "private/1__6/messages/19ff0752b48f74a5888a70cf324.json",
+          "size": 179
+        }
+      ]
+    }
+  },
+  "totals": {
+    "group_objects": 2,
+    "private_chat_objects": 7,
+    "private_sessions": 2,
+    "total": 11,
+    "bytes": 1523869
+  }
+}

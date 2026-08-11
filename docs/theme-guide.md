@@ -224,7 +224,7 @@ src/fonts.js（FontManager，全局单例）
 | `--md-sidebar-entry-hover` | 公会频道入口悬停背景 | `var(--md-surface-container-high)` |
 | **聊天区** | | |
 | `--md-chat-bg` | 消息区背景 | `var(--md-background)` |
-| `--md-chat-sender` | 公聊对方昵称 | `var(--md-on-surface-variant)` |
+| `--md-chat-sender` | 群聊对方昵称 | `var(--md-on-surface-variant)` |
 | `--md-chat-sender-dim` | 私聊昵称/已删除昵称 | `var(--md-on-surface-variant)` |
 | `--md-chat-sender-own` | 己方昵称 | `var(--md-primary)` |
 | `--md-chat-time` | 消息时间 | `var(--md-on-surface-variant)` |

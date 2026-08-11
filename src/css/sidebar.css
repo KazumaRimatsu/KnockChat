@@ -1,91 +1,9 @@
 /* ==========================================================================
    sidebar.css —— 主页聊天列表（侧边栏）
    --------------------------------------------------------------------------
-   职责：公共会话入口、私聊列表项（三态：未选中/悬停/选中）、未读角标。
+   职责：群聊邀请入口、群聊列表、私聊列表项（三态：未选中/悬停/选中）、未读角标。
    三态颜色走 --md-sidebar-item-* 令牌，主题可整体定制。
    ========================================================================== */
-
-/* --- 公共会话入口（与私聊列表项同级、置顶展示，三态与列表项一致） --- */
-.home-page .public-chat-entry {
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-    min-height: 64px;
-    padding: 12px 16px;
-    background: var(--md-sidebar-item-bg);
-    border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-sidebar-border);
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.home-page .public-chat-entry:hover {
-    background: var(--md-sidebar-item-hover);
-}
-
-.home-page .public-chat-entry.active {
-    background: var(--md-sidebar-item-active);
-}
-
-.home-page .public-chat-entry .icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 40px;
-    height: 40px;
-    min-width: 40px;
-    margin-right: 12px;
-    border-radius: 50%;
-    background: var(--md-primary);
-    color: var(--md-on-primary);
-}
-
-.home-page .public-chat-entry .icon svg {
-    width: 24px;
-    height: 24px;
-    fill: currentColor;
-}
-
-.home-page .public-chat-entry .info {
-    flex: 1;
-    min-width: 0;
-}
-
-.home-page .public-chat-entry .info .name {
-    font-size: 0.9375rem;
-    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
-    color: var(--md-sidebar-item-text);
-}
-
-.home-page .public-chat-entry .info .sub {
-    font-size: 0.8125rem;
-    color: var(--md-sidebar-item-text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* 悬停/选中时公共入口文字统一高亮（与列表项一致） */
-.home-page .public-chat-entry:hover .info .name,
-.home-page .public-chat-entry:hover .info .sub,
-.home-page .public-chat-entry.active .info .name,
-.home-page .public-chat-entry.active .info .sub {
-    color: var(--md-sidebar-item-text-active);
-}
-
-.home-page .public-chat-entry .badge {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: var(--radius-md);
-    background: var(--md-error);
-    font-size: 0.6875rem;
-    font-weight: 600;
-    color: var(--md-on-error);
-}
 
 /* --- 私聊列表 --- */
 .home-page .private-list {
@@ -241,4 +159,209 @@
     height: 40px;
     min-width: 40px;
     margin-right: 0;
+}
+
+/* --- v100 统一聊天列表：群聊与私聊共用 #chatList（同时带 private-list/group-list 类）--- */
+/* 分隔线已随 group-section 移除；容器滚动与内边距由 .private-list 规则提供 */
+
+/* 群聊邀请入口（列表项风格，与群聊项平级；有未处理邀请时显示） */
+.home-page .group-list .group-invite-row {
+    display: flex;
+    align-items: center;
+    min-height: 64px;
+    padding: 12px 16px;
+    background: var(--md-sidebar-item-bg);
+    border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-sidebar-border);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.home-page .group-list .group-invite-row:hover {
+    background: var(--md-sidebar-item-hover);
+}
+
+.home-page .group-list .group-invite-row .ginv-row-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    margin-right: 12px;
+    border-radius: 50%;
+    background: var(--md-primary-container);
+}
+
+.home-page .group-list .group-invite-row .ginv-row-icon svg {
+    width: 20px;
+    height: 20px;
+    fill: var(--md-primary);
+}
+
+.home-page .group-list .group-invite-row .info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.home-page .group-list .group-invite-row .info .name {
+    font-size: 0.9375rem;
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-sidebar-item-text);
+}
+
+.home-page .group-list .group-invite-row .info .last-msg {
+    font-size: 0.8125rem;
+    color: var(--md-sidebar-item-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.home-page .group-list .group-invite-row .unread-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    min-width: 18px;
+    height: 18px;
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: var(--radius-md);
+    background: var(--md-error);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--md-on-error);
+}
+
+/* 群列表项：三态背景与文字与私聊列表项一致 */
+.home-page .group-list .group-item {
+    display: flex;
+    align-items: center;
+    min-height: 64px;
+    padding: 12px 16px;
+    background: var(--md-sidebar-item-bg);
+    border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-sidebar-border);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.home-page .group-list .group-item:hover {
+    background: var(--md-sidebar-item-hover);
+}
+
+.home-page .group-list .group-item.active {
+    background: var(--md-sidebar-item-active);
+}
+
+.home-page .group-list .group-item .av-wrap {
+    position: relative;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    margin-right: 12px;
+}
+
+.home-page .group-list .group-item .av-wrap .av {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    border-radius: 50%;
+    background-size: cover;
+    background-position: center;
+    font-weight: 700;
+    color: var(--md-avatar-text);
+}
+
+.home-page .group-list .group-item .info {
+    flex: 1;
+    overflow: hidden;
+}
+
+.home-page .group-list .group-item .info .name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.9375rem;
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-sidebar-item-text);
+}
+
+.home-page .group-list .group-item .info .last-msg {
+    font-size: 0.8125rem;
+    color: var(--md-sidebar-item-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.home-page .group-list .group-item .time {
+    flex-shrink: 0;
+    margin-left: 8px;
+    font-size: 0.6875rem;
+    color: var(--md-sidebar-item-text-muted);
+}
+
+.home-page .group-list .group-item .unread-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    min-width: 18px;
+    height: 18px;
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: var(--radius-md);
+    background: var(--md-error);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--md-on-error);
+}
+
+.home-page .group-list .group-item .unread-badge.hidden {
+    display: none;
+}
+
+.home-page .group-list .group-item:hover .info .name,
+.home-page .group-list .group-item:hover .info .last-msg,
+.home-page .group-list .group-item:hover .time,
+.home-page .group-list .group-item.active .info .name,
+.home-page .group-list .group-item.active .info .last-msg,
+.home-page .group-list .group-item.active .time {
+    color: var(--md-sidebar-item-text-active);
+}
+
+/* 群主标记 */
+.g-owner-tag {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--md-primary-container);
+    font-size: 0.625rem;
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-primary);
+    vertical-align: middle;
+}
+
+/* v100.x: 群管理员标记 */
+.g-admin-tag {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--md-secondary-container);
+    font-size: 0.625rem;
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-on-secondary-container);
+    vertical-align: middle;
+}
+
+.home-page .group-list .group-item .empty {
+    padding: 16px;
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--md-sidebar-text-muted);
 }

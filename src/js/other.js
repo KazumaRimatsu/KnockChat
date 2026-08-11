@@ -11,6 +11,59 @@
         // 因此不能复用 escapeAttr（只适用于 HTML 属性值上下文）。此处先做 JS 转义再转义 & 防实体注入。
         function escapeJsString(t) { if (t == null) return ''; return String(t).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/&/g, '&amp;'); }
 
+        // ============ 保存文件到本地 ============
+        // 打包后的 WebView 不支持 <a download> 触发的 Blob 下载（静默失败），
+        // Tauri 环境弹系统保存对话框写入文件；浏览器环境回退原 <a download> 方式。
+        // 返回 'saved' | 'cancelled' | 'failed'
+
+        // 从 blob 的 MIME 推断扩展名
+        function _extFromMime(type) {
+            var map = {
+                'image/jpeg': 'jpg', 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp',
+                'image/bmp': 'bmp', 'image/svg+xml': 'svg', 'image/x-icon': 'ico',
+                'video/mp4': 'mp4', 'video/webm': 'webm', 'video/ogg': 'ogv',
+                'audio/mpeg': 'mp3', 'audio/ogg': 'ogg', 'audio/wav': 'wav',
+                'application/json': 'json', 'application/pdf': 'pdf', 'text/plain': 'txt',
+                'application/zip': 'zip', 'application/gzip': 'gz', 'application/x-7z-compressed': '7z'
+            };
+            if (!type) return '';
+            var base = String(type).split(';')[0].toLowerCase();
+            return map[base] || '';
+        }
+
+        // 清洗文件名：去掉非法字符、补扩展名（按 MIME 推断，缺省 .bin）、截断过长基础名
+        function _sanitizeFileName(name, blob) {
+            var n = String(name || '').trim();
+            n = n.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_');
+            if (!n) n = 'download';
+            var m = n.match(/\.([a-zA-Z0-9]{1,10})$/);
+            var ext = m ? m[1].toLowerCase() : (_extFromMime(blob && blob.type) || 'bin');
+            var base = m ? n.slice(0, m.index) : n;
+            if (base.length > 30) base = base.slice(0, 30);
+            return base + '.' + ext;
+        }
+
+        async function saveBlobFile(fileName, blob) {
+            var safeName = _sanitizeFileName(fileName, blob);
+            if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+                try {
+                    const bytes = Array.from(new Uint8Array(await blob.arrayBuffer()));
+                    const saved = await window.__TAURI__.core.invoke('save_binary_file', { fileName: safeName, data: bytes });
+                    return saved === false ? 'cancelled' : 'saved';
+                } catch (e) {
+                    if (window.__debugLog) window.__debugLog('Tauri 保存失败，回退浏览器下载: ' + (e.message || e));
+                }
+            }
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = safeName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(function() { URL.revokeObjectURL(a.href); }, 1000);
+            return 'saved';
+        }
+
         // ============ mjv064 消息协议（对齐 MJChat v1.6.1） ============
         // 封装一段 mjv064 标签：<mjv064 type="file" name="..." size="..." url="...">fallback</mjv064>
         function _wrapMjV064(type, attrs, fallbackText) {
@@ -154,6 +207,164 @@
             }
             if (text.startsWith('🖼️ ')) return '[图片]';
             return text.length > 40 ? text.substring(0, 40) + '…' : text;
+        }
+
+        // ============ v101: 统一消息内容协议（contents JSON） ============
+        // 所有消息（含系统消息）的内容统一存储于消息对象的 contents 字段，
+        // 值为 {type, ...} JSON，替代旧的 text/image_url/audio_url/mjv064 混合协议：
+        //   text → { type:"text", content:"123456" }        纯文本
+        //   image → { type:"image", url:"xxx" }             图片
+        //   video → { type:"video", url:"xxx" }             视频
+        //   file → { type:"file", url:"xxx", name?, size? } 文件
+        //   audio → { type:"audio", url:"xxx", dur? }       语音（dur 为时长秒）
+        //   emoji → { type:"emoji", url:"xxx" }             自定义表情
+        //   system → { type:"system", content:"xxx加入了群聊" } 系统消息
+        //   richtext → { type:"richtext", content:"<h1>xxx</h1>" } 富文本（渲染端白名单清洗）
+
+        // 构造 contents JSON 字符串（发送用）
+        function buildContents(type, payload) {
+            const obj = { type: type };
+            for (var k in payload) {
+                if (payload.hasOwnProperty(k)) obj[k] = payload[k];
+            }
+            return JSON.stringify(obj);
+        }
+
+        // 解析消息 contents：兼容字符串/对象；旧消息回退 text/image_url/audio_url 字段
+        function parseMsgContents(msg) {
+            if (!msg) return { type: 'text', content: '' };
+            if (msg.contents) {
+                if (typeof msg.contents === 'string') {
+                    try {
+                        const o = JSON.parse(msg.contents);
+                        if (o && typeof o === 'object' && typeof o.type === 'string') return o;
+                    } catch (e) { /* 回退 */ }
+                } else if (typeof msg.contents === 'object' && msg.contents.type) {
+                    return msg.contents;
+                }
+            }
+            // 历史消息兜底
+            if (msg.image_url) return { type: 'image', url: msg.image_url };
+            if (msg.audio_url) return { type: 'audio', url: msg.audio_url, dur: msg.audio_dur || 0 };
+            if (msg.text) return { type: 'text', content: msg.text };
+            return { type: 'text', content: '' };
+        }
+
+        // URL → 文件名（去 query/hash，URI 解码）
+        function fileNameFromUrl(url) {
+            if (!url) return '文件';
+            const clean = String(url).split('?')[0].split('#')[0];
+            const name = clean.split('/').pop() || '文件';
+            try { return decodeURIComponent(name); } catch (e) { return name; }
+        }
+
+        // contents → 会话/回复预览文案（与后端 contentsPreview 保持一致）
+        function getContentsPreview(contents) {
+            const c = contents || {};
+            const content = String(c.content || '');
+            switch (c.type) {
+                case 'system': return content || '';
+                case 'image': return '[图片]';
+                case 'video': return '[视频]';
+                case 'file': return '[文件] ' + fileNameFromUrl(c.url);
+                case 'audio': return '[语音]';
+                case 'emoji': return '[表情]';
+                case 'richtext':
+                    if (content.indexOf('<a ') !== -1) return '[链接]';
+                    if (content.indexOf('<img') !== -1) return '[图片]';
+                    return '[消息]';
+                default: {
+                    // 文本：剥离内联表情码与私聊回复前缀后截断
+                    let t = content.replace(/<mjv064[\s\S]*?<\/mjv064>/g, '[表情]');
+                    t = t.replace(/^__RPL__.*?__ENDRPL__/, '');
+                    return t.length > 40 ? t.substring(0, 40) + '…' : t;
+                }
+            }
+        }
+
+        // contents.type → dataset.msgType（历史值：text/image/link/voice/video/file/emoji）
+        function contentsMsgType(c) {
+            const t = c && c.type;
+            if (t === 'image' || t === 'emoji') return t;
+            if (t === 'video') return 'video';
+            if (t === 'audio') return 'voice';
+            if (t === 'file') return 'file';
+            if (t === 'richtext') {
+                const content = String((c && c.content) || '');
+                if (content.indexOf('<a ') !== -1) return 'link';
+                return 'richtext';
+            }
+            return 'text';
+        }
+
+        // 文本内容渲染：清洗 HTML → 自动链接 URL → 内联表情码还原为小图 → @提及高亮
+        function renderTextContent(text) {
+            if (!text) return '';
+            let t = String(text);
+            // 1. 保护内联表情码（mjv064 emoji），避免被 cleanHtml 剥离
+            const saved = [];
+            t = t.replace(/<mjv064\s+type="emoji"([\s\S]*?)<\/mjv064>/g, function(m) {
+                saved.push(m);
+                return '\u0001MJE' + (saved.length - 1) + '\u0001';
+            });
+            // 2. 自动识别 URL 并链接（在清洗前进行；标签属性内（=、"、' 后）的 URL 跳过，避免破坏已有标签）
+            t = t.replace(/(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/gi, function(m, p1, offset, full) {
+                const prev = offset > 0 ? full[offset - 1] : '';
+                if (prev === '=' || prev === '"' || prev === "'") return m;
+                let url = m;
+                if (!/^https?:/i.test(url)) url = 'https://' + url;
+                if (!isSafeUrl(url)) return m;
+                return '<a href="' + escapeAttr(url) + '" target="_blank" rel="noopener noreferrer" style="color:var(--md-link);text-decoration:underline;">' + escapeHtml(m) + '</a>';
+            });
+            // 3. 清洗其余 HTML（白名单）
+            t = cleanHtml(t);
+            // 4. 还原表情码为小表情图
+            t = t.replace(/\u0001MJE(\d+)\u0001/g, function(m, i) {
+                const code = saved[parseInt(i, 10)] || '';
+                const mm = code.match(/<mjv064\s+([^>]*)>/);
+                const a = mm ? _parseMjV064(mm) : null;
+                if (a && a.url) {
+                    return _wrapImgWithLoader(a.url, 'alt="表情" onclick="previewImage(\'' + escapeJsString(a.url) + '\')"', 'width:28px;height:28px;object-fit:contain;vertical-align:middle;border-radius:4px;cursor:pointer;');
+                }
+                return '[表情]';
+            });
+            // 5. @提及高亮
+            t = t.replace(/@([\w\u4e00-\u9fa5]+)/g, '<b>@$1</b>');
+            return t;
+        }
+
+        // contents → 气泡 HTML（system 类型由调用方单独处理，此函数不渲染）
+        function renderContentsBubble(contents, msg) {
+            const c = contents || {};
+            const url = c.url || '';
+            switch (c.type) {
+                case 'image':
+                    return _wrapImgWithLoader(url, 'onclick="previewImage(\'' + escapeJsString(url) + '\')" alt="图片"', 'max-width:280px;max-height:280px;border-radius:12px;cursor:pointer;');
+                case 'video':
+                    return buildVideoBubbleHtml(url, fileNameFromUrl(url));
+                case 'file':
+                    return buildFileBubbleHtml(url, fileNameFromUrl(url), c.size || '');
+                case 'audio':
+                    return buildVoiceBubbleHtml(url, parseInt(c.dur) || (msg && msg.audio_dur) || 0, '请升级到最新版本播放');
+                case 'emoji':
+                    if (url) {
+                        return _wrapImgWithLoader(url, 'alt="表情" onclick="previewImage(\'' + escapeJsString(url) + '\')"', 'width:80px;height:80px;object-fit:contain;border-radius:8px;cursor:pointer;');
+                    }
+                    return escapeHtml(c.content || '[表情]');
+                case 'richtext':
+                    return cleanHtml(c.content || '');
+                case 'text':
+                default:
+                    return renderTextContent(c.content || '');
+            }
+        }
+
+        // 若文本整体是一个表情码，返回其 URL；否则返回空串
+        function emojiOnlyUrl(text) {
+            const m = String(text || '').match(/^<mjv064\s+type="emoji"([\s\S]*?)<\/mjv064>$/);
+            if (!m) return '';
+            const a = _parseMjV064(m);
+            return a && a.url ? a.url : '';
         }
 
         function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i);
@@ -302,8 +513,9 @@
                 if (messagesContainer.scrollTop <= 5) {
                     clearTimeout(topLoadTimer);
                     topLoadTimer = setTimeout(() => {
-                        if (messagesContainer.id === 'publicMessages' && publicHasMore) {
-                            loadMorePublicMessages();
+                        // v099: 群聊触顶加载（替代原公聊）
+                        if (messagesContainer.id === 'publicMessages' && groupHasMore) {
+                            loadMoreGroupMessages();
                         } else if (messagesContainer.id === 'privateMessages' && privateHasMore && privateSessionId) {
                             loadMorePrivateMessages(privateSessionId);
                         }
@@ -439,29 +651,18 @@
                 switchPage('homePage', true);
                 updateSidebarHighlight();
                 loadPrivateSessions();
-                updatePublicEntry();
+                // v099: 群列表摘要/未读由 renderGroupList 内部同步（原公聊 updatePublicEntry 已删除）
                 updatePublicBadge();
             } else if (page === 'public') {
-                pushPageHistory('public');
+                // v099: 群聊窗口（openGroupChat 为主要入口；此处兜底处理 popstate/历史恢复）
+                pushPageHistory('group');
                 switchPage('publicPage', true);
                 updateSidebarHighlight();
-                if (publicMessages.length > 0) {
-                    const lastMsg = publicMessages[publicMessages.length - 1];
-                    markPublicRead(lastMsg.created_at);
-                } else {
-                    markPublicRead();
+                if (currentGroupId && groupMessages.length > 0) {
+                    refreshGroupMessages();
+                    markGroupRead();
                 }
-                publicUnread = 0;
-                updatePublicBadge();
                 updateBackBadge();
-                document.getElementById('publicMessages').innerHTML = '';
-                publicLastDateLabel = '';
-                publicMessages.forEach(m => renderPublicMessage(m));
-                const container = document.getElementById('publicMessages');
-                setTimeout(() => {
-                    scrollToBottom(container);
-                    updateScrollButton(container);
-                }, 50);
             } else if (page === 'search') {
                 pushPageHistory('search');
                 switchPage('searchPage', true);
@@ -517,18 +718,36 @@
                 leavePrivateChatAnimated();
                 return;
             }
+            // v099: 从群聊窗口返回时清理当前群状态并停止消息轮询
+            if (currentPage === 'group' || currentPage === 'public') {
+                leaveGroupChat();
+            }
             if (currentPage !== 'home' && pageHistory.length > 1) {
                 popPageHistory();
                 const prevPage = pageHistory[pageHistory.length - 1];
-                const targetId = prevPage === 'public' ? 'publicPage' :
+                const targetId = prevPage === 'group' || prevPage === 'public' ? 'publicPage' :
                                  prevPage === 'search' ? 'searchPage' :
                                  prevPage === 'settings' ? 'settingsPage' :
                                  prevPage === 'about' ? 'aboutPage' :
                                  prevPage === 'groupFiles' ? 'groupFilesPage' :
                                  prevPage === 'userDetail' ? 'userDetailPage' :
-                                 prevPage === 'editProfile' ? 'editProfilePage' : 'homePage';
+                                 prevPage === 'editProfile' ? 'editProfilePage' :
+                                 // v097: 好友相关页面
+                                 prevPage === 'friends' ? 'friendsPage' :
+                                 prevPage === 'addFriend' ? 'addFriendPage' : 'homePage';
                 switchPage(targetId, false);
                 updateBackBadge();
+                // v099: 返回群聊页时恢复消息轮询（上一步 leaveGroupChat 已停止）
+                if (targetId === 'publicPage' && currentGroupId) {
+                    startGroupMsgPolling();
+                }
+                // v097: 返回好友列表时刷新渲染（申请处理/分组变更等可能已过期）
+                if (targetId === 'friendsPage') {
+                    try {
+                        if (window.friendModule && typeof window.friendModule.ensureLoaded === 'function') window.friendModule.ensureLoaded();
+                        if (typeof window.renderFriendsPage === 'function') window.renderFriendsPage();
+                    } catch (e) { /* ignore */ }
+                }
             } else {
                 try { history.pushState({ page: 'home', mjchat_nav: true }, '', '#home'); } catch (e) {}
             }
@@ -614,16 +833,32 @@
             const avatar = document.getElementById('publicMenuAvatar');
             const name = document.getElementById('publicMenuName');
             const dot = document.getElementById('publicAvatarDot');
-            const idx = hashStr(currentUser) % 8;
+            // v099: 群聊菜单显示当前群的头像与名称（替代原公聊的当前用户信息）
+            const gname = (currentGroupInfo && currentGroupInfo.name) ? currentGroupInfo.name : (currentGroupId ? '群聊' : '');
+            const gavatar = (currentGroupInfo && currentGroupInfo.avatar_url) ? currentGroupInfo.avatar_url : '';
+            const idx = hashStr(gname || '群') % 8;
             avatar.className = 'user-avatar av-' + idx;
-            fillUserAvatar(avatar, currentUser, currentAvatarUrl);
-            name.textContent = currentUser;
-            // 头像圆点仅反映账号状态（封禁/注销）；在线状态已随 Realtime 移除
-            applyCurrentUserStatus(dot, avatar);
+            if (sanitizeAvatarUrl(gavatar)) {
+                avatar.style.backgroundImage = "url('" + escapeAttr(sanitizeAvatarUrl(gavatar)) + "')";
+                avatar.style.backgroundSize = 'cover';
+                avatar.style.backgroundPosition = 'center';
+                avatar.textContent = '';
+            } else {
+                avatar.style.backgroundImage = '';
+                avatar.textContent = (gname || '群').charAt(0).toUpperCase();
+            }
+            name.textContent = gname;
+            // 头像圆点：群聊无在线状态，隐藏
+            if (dot) dot.classList.add('hidden');
             refreshNotifySettingsUI();
-            // v053: 更新群聊免打扰标签
+            // v099: 更新群聊免打扰标签（按当前群判断）
             var muteLabel = document.getElementById('publicMuteLabel');
-            if (muteLabel) muteLabel.textContent = (typeof _mutePublic !== 'undefined' && _mutePublic) ? '取消群聊免打扰' : '群聊免打扰';
+            var muted = !!(currentGroupId && _muteGroups && _muteGroups[currentGroupId]);
+            if (muteLabel) muteLabel.textContent = muted ? '取消群聊免打扰' : '群聊免打扰';
+            // v102: 群管理菜单项（管理员/群主）：全体禁言 + 清空群消息（群主）、群转让（群主）
+            var isMod = !!(currentGroupInfo && (currentGroupInfo.my_role === 'owner' || currentGroupInfo.my_role === 'admin'));
+            var manageItem = document.getElementById('publicMenuManageItem');
+            if (manageItem) manageItem.style.display = isMod ? '' : 'none';
         }
 
         let privateBlockedStatus = false;
@@ -930,14 +1165,7 @@
         function downloadThemeTemplate() {
             const sample = ThemeManager.buildThemeFileSample();
             const blob = new Blob([JSON.stringify(sample, null, 4)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'cika-theme-template.json';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            saveBlobFile('cika-theme-template.json', blob);
         }
 
         // ============================================================

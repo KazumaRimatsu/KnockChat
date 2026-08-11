@@ -249,6 +249,22 @@
     color: var(--md-error);
 }
 
+/* 菜单项右侧徽标（如好友申请数） */
+.user-menu-card .menu-list li .menu-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: var(--radius-md);
+    background: var(--md-error);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: var(--md-on-error);
+}
+
 /* --- 头像底部菜单（移动端 bottom sheet） --- */
 .avatar-menu {
     position: fixed;

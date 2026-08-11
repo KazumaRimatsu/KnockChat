@@ -10,17 +10,11 @@
         var _prevLoginBlocked = false;
         let clientId = '';
         let isEntered = false;
-        let _publicPollTimer = null;
-        let _publicBackupPollTimer = null;
-        let _publicRetryCount = 0;
         var _rateLimits = {};
-        // v053: 免打扰系统
-        let _mutePublic = false;
+        // v053: 免打扰系统（公聊已移除，仅保留私聊与会话级；群聊免打扰见 chat.js _muteGroups）
         let _mutePerPrivateSession = {};
         // v053: 恢复静音状态
         try {
-            var _savedMutePublic = localStorage.getItem(LS_KEYS.PUBLIC_MUTED);
-            if (_savedMutePublic === '1') _mutePublic = true;
             var _savedPrivateMuted = localStorage.getItem(LS_KEYS.PRIVATE_MUTED);
             if (_savedPrivateMuted) _mutePerPrivateSession = JSON.parse(_savedPrivateMuted);
         } catch(e) {}
@@ -90,16 +84,20 @@
 
 
 
-        async function sendPublicMessageSecure(payload) {
-            if (!checkRateLimit('send_msg', 30, 60000)) {
+        // v099: 发送群聊消息（替代原公聊 sendPublicMessageSecure；后端限制类型 group_text/group_media）
+        async function sendGroupMessageSecure(groupId, payload) {
+            if (!groupId) return { success: false, message: '缺少群聊 ID' };
+            if (!checkRateLimit('send_group_msg', 30, 60000)) {
                 return { success: false, message: '发送过于频繁，请稍后再试' };
             }
             const token = getSessionToken();
             if (!token) { return { success: false, message: '请重新登录' }; }
             try {
-                const { data, error } = await s3.rpc('send_public_message_secure', {
-                    p_uid: currentUid,
+                const { data, error } = await s3.rpc('send_group_message', {
+                    p_sender_uid: currentUid,
                     p_session_token: token,
+                    p_group_id: groupId,
+                    p_contents: payload.contents || null,
                     p_text: payload.text || '',
                     p_image_url: payload.image_url || null,
                     p_audio_url: payload.audio_url || null,
@@ -111,21 +109,6 @@
                 if (error) return { success: false, message: error.message };
                 return data || { success: false, message: '发送失败' };
             } catch (e) { return { success: false, message: e.message }; }
-        }
-
-        async function sendSystemMessageSecure(text) {
-            const token = getSessionToken();
-            if (!token) return { success: false };
-            try {
-                const { data, error } = await s3.rpc('send_public_message_secure', {
-                    p_uid: currentUid,
-                    p_session_token: token,
-                    p_text: text,
-                    p_is_system: true
-                });
-                if (error) return { success: false };
-                return data || { success: false };
-            } catch (e) { return { success: false }; }
         }
 
         async function countUnreadPrivateMessages(sessionId, lastReadTime) {
@@ -641,38 +624,20 @@
             }
             try {
                 const msgCache = await loadChatMessageCache();
-                if (msgCache && msgCache.public && msgCache.public.length && publicMessages.length === 0) {
-                    msgCache.public.forEach(m => {
-                        publicMessages.push(m);
-                        publicMessageById.set(m.id, m);
-                    });
+                // v099: 群聊消息按当前打开群从服务端加载，缓存仅用于离线兜底（见 loadGroupHistory）
+                if (msgCache) {
+                    try { if (window.__debugLog) window.__debugLog('聊天记录缓存就绪 (groups=' + (msgCache.groups ? Object.keys(msgCache.groups).length : 0) + ')'); } catch (e) {}
                 }
             } catch (e) {
                 console.warn('聊天记录缓存恢复失败:', e);
             }
 
             try {
-                // v040: Make connectPublic non-blocking - if it fails or takes too long,
-                // still enter app and retry public chat connection in background
-                try {
-                    // v040: Race connectPublic against a 20-second timeout
-                    await Promise.race([
-                        connectPublic(),
-                        new Promise(function(_, reject) {
-                            setTimeout(function() { reject(new Error('公聊连接超时')); }, 20000);
-                        })
-                    ]);
-                } catch (pubErr) {
-                    console.error('[enterApp] connectPublic failed, will retry:', pubErr);
-                    // Don't block the entire app - continue with private chat
-                }
-                // v044: 启动公聊轮询备份
-                startPublicPollingBackup();
                 await loadPrivateSessions();
                 setupGlobalPrivateListener();
-                restoreUnreadCounts();
                 restorePrivateUnreadFromSessions();
-                updatePublicBadge();
+                // v099: 群聊初始化（mute 配置 + 群列表轮询，列表由 get_my_groups 同步所有成员的群聊状态）
+                initGroupFeature();
                 updateBackBadge();
                 pageHistory = ['home'];
                 document.getElementById('homePage').classList.add('active');
@@ -686,17 +651,14 @@
                 updateHomeMenu();
                 updatePublicMenu();
                 renderPrivateList();
-                // v091: 登录后预加载自定义表情（公聊/私聊表情面板共用用户级表情）
+                // v097: 登录后初始化好友数据（好友列表/申请/分组，失败不阻塞主流程）
+                try { if (window.friendModule && typeof window.friendModule.init === 'function') window.friendModule.init(); } catch (e) { console.warn('[friends] init failed:', e); }
+                // v091: 登录后预加载自定义表情（群聊/私聊表情面板共用用户级表情）
                 loadEmojiList();
                 initInteractions();
                 initPrivateInteractions();
                 initPasteImage();
-                updatePublicEntry();
-                updatePublicBadge();
                 updateAllAvatars();
-
-                const publicMessagesEl = document.getElementById('publicMessages');
-                setupScrollHandlers(publicMessagesEl);
 
             } catch (err) {
                 hideGlobalLoading();
@@ -935,195 +897,6 @@
             return h1.toString(36) + ':' + h2.toString(36);
         }
 
-        async function broadcastSystemMsg(text) {
-            if (!text || typeof text !== 'string') return;
-            if (isGarbledText(text)) {
-                console.warn('拦截到乱码系统消息，已阻止:', text);
-                return;
-            }
-            const now = Date.now();
-            if (recentSystemMsgs[text] && now - recentSystemMsgs[text] < 5000) return;
-            recentSystemMsgs[text] = now;
-            Object.keys(recentSystemMsgs).forEach(k => {
-                if (now - recentSystemMsgs[k] > 10000) delete recentSystemMsgs[k];
-            });
-            try {
-                sendSystemMessageSecure(text).then(r => {
-                    if (r && r.success !== false) updatePublicEntry();
-                }).catch(e => {});
-            } catch (e) { /* ignore */ }
-        }
-
-        async function connectPublic() {
-            // 已移除 Supabase Realtime 实时通道：改为「加载历史 + 定时轮询增量」
-            return new Promise((resolve, reject) => {
-                let resolved = false;
-                loadPublicHistory()
-                    .then(() => {
-                        updatePublicConn(true);
-                        if (window.__debugLog) window.__debugLog('公聊连接成功');
-                        if (!resolved) { resolved = true; resolve(); }
-                    })
-                    .catch(err => {
-                        updatePublicConn(false);
-                        if (window.__debugLog) window.__debugLog('公聊连接失败: ' + (err.message || err));
-                        if (!resolved) { resolved = true; reject(err); }
-                    });
-                setTimeout(() => {
-                    if (!resolved) { resolved = true; reject(new Error('连接超时，请检查网络')); }
-                }, 15000);
-            });
-        }
-
-        // v044: 公聊轻量轮询——S3 无实时通道，轮询增量拉取
-        function startPublicPollingBackup() {
-            if (_publicBackupPollTimer) clearInterval(_publicBackupPollTimer);
-            _publicBackupPollTimer = setInterval(async () => {
-                if (!currentUser || !isEntered) return;
-                try {
-                    await _pollPublicMessages();
-                } catch (e) { /* ignore */ }
-            }, 10000);
-        }
-
-        async function _pollPublicMessages() {
-            if (!isEntered) return;
-            try {
-                var lastId = '';
-                if (publicMessages && publicMessages.length > 0) {
-                    for (var i = publicMessages.length - 1; i >= 0; i--) {
-                        if (publicMessages[i].id) {
-                            lastId = publicMessages[i].id;
-                            break;
-                        }
-                    }
-                }
-                var res = await s3.rpc('get_public_messages', {
-                    p_after_id: lastId,
-                    p_limit: 20
-                });
-                if (res.error || !res.data || !Array.isArray(res.data)) return;
-                if (res.data.length === 0) return;
-                res.data.reverse().forEach(function(msg) {
-                    if (publicMessageById.has(msg.id)) return;
-                    handlePublicMessage(msg);
-                    updatePublicEntry();
-                    var container = document.getElementById('publicMessages');
-                    if (container && !container._userScrolledUp) {
-                        scrollToBottom(container);
-                        updateScrollButton(container);
-                    }
-                });
-            } catch (e) {
-                if (window.__debugLog) window.__debugLog('公聊轮询失败: ' + (e && e.message || e));
-            }
-        }
-
-        async function loadPublicHistory() {
-            try {
-                const res = await s3.rpc('get_public_messages', { p_limit: HISTORY_LIMIT });
-                if (res.error || !Array.isArray(res.data)) {
-                    console.error('loadPublicHistory error:', res.error);
-                    if (window.__debugLog) window.__debugLog('加载公聊历史失败: ' + ((res.error && res.error.message) || res.error));
-                    if (publicMessages.length === 0) {
-                        addPublicSystemMsg('加载历史消息失败');
-                    } else {
-                        // v070: 已有本地缓存时保留展示，不显示失败提示
-                        publicHasMore = false;
-                        if (typeof showSnackbar === 'function') showSnackbar('网络异常，正在显示本地缓存记录');
-                    }
-                    return;
-                }
-                const data = res.data;
-                const el = document.querySelector('#publicMessages .system-msg');
-                if (el) el.remove();
-                if (!data || data.length === 0) {
-                    publicHasMore = false;
-                    return;
-                }
-                publicHasMore = data.length >= HISTORY_LIMIT;
-                _sortMsgAsc(data).forEach(m => handlePublicMessage(m, true));
-                const senders = [...new Set(data.map(m => m.sender).filter(s => s && s !== 'system'))];
-                await loadUserAvatars(senders);
-                document.querySelectorAll('#publicMessages .msg-row .avatar').forEach(av => {
-                    const sender = av.dataset.sender;
-                    if (sender && userAvatarCache[sender]) {
-                        av.style.backgroundImage = `url(${userAvatarCache[sender]})`;
-                        av.textContent = '';
-                    }
-                });
-                const container = document.getElementById('publicMessages');
-                if (container) {
-                    setTimeout(() => {
-                        scrollToBottom(container);
-                        updateScrollButton(container);
-                    }, 50);
-                }
-            } catch (e) {
-                console.error('loadPublicHistory exception:', e);
-            }
-        }
-
-        async function loadMorePublicMessages() {
-            if (publicLoadingMore || publicMessages.length === 0) return;
-            publicLoadingMore = true;
-            showPublicLoadMore(true);
-            try {
-                const oldestId = publicMessages[0].id;
-                const res = await s3.rpc('get_public_messages', {
-                    p_before_id: oldestId,
-                    p_limit: PAGE_SIZE
-                });
-                const data = res.error ? null : (res.data || []);
-                if (!data || data.length === 0) {
-                    publicHasMore = false;
-                    return;
-                }
-                const senders = [...new Set(data.map(m => m.sender).filter(s => s && s !== 'system'))];
-                await loadUserAvatars(senders);
-                const newMsgs = data.reverse().map(msg => ({
-                    id: msg.id, sender: msg.sender, sender_uid: msg.sender_uid || 0, text: msg.text || '',
-                    image_url: msg.image_url || null, audio_url: msg.audio_url || null,
-                    audio_dur: msg.audio_dur || 0, msg_version: msg.msg_version || null,
-                    created_at: msg.created_at, reply_to_id: msg.reply_to_id || null,
-                    reply_content: msg.reply_content || null, sender_deleted: msg.sender_deleted || false,
-                    is_system: msg.is_system || false
-                }));
-                const unique = newMsgs.filter(m => !publicMessageById.has(m.id));
-                const filtered = unique.filter(m => !(m.is_system && isGarbledText(m.text)));
-                publicMessages = filtered.concat(publicMessages);
-                filtered.forEach(m => publicMessageById.set(m.id, m));
-                const container = document.getElementById('publicMessages');
-                const prevScrollHeight = container.scrollHeight;
-                const prevScrollTop = container.scrollTop;
-                // v073 性能优化：仅渲染新增的旧消息并批量插入（DocumentFragment），
-                // 不再整列表销毁重建（保留已渲染消息的 DOM、图片加载态与滚动状态）
-                const frag = document.createDocumentFragment();
-                if (filtered.length) {
-                    publicLastDateLabel = '';
-                    filtered.forEach(m => renderPublicMessage(m, frag));
-                }
-                container.insertBefore(frag, container.firstChild);
-                requestAnimationFrame(() => {
-                    container.scrollTop = prevScrollTop + (container.scrollHeight - prevScrollHeight);
-                });
-            } catch (e) {
-                console.error('loadMorePublicMessages error:', e);
-            } finally {
-                publicLoadingMore = false;
-                showPublicLoadMore(false);
-            }
-        }
-
-        async function ensureAgentUserAccount(agentName) {
-            // 智能体账号由服务端创建；本地仅确保头像缓存已初始化
-            try {
-                if (!userAvatarCache.hasOwnProperty(agentName)) {
-                    userAvatarCache[agentName] = '';
-                }
-            } catch (e) { /* ignore */ }
-        }
-
         // callLLM removed - AI calls now go through server-side call_agent_llm RPC
         // API keys are NEVER exposed to the client
 
@@ -1132,6 +905,7 @@
                 const { data: rpcData, error: rpcError } = await s3.rpc('send_private_message', {
                     p_session_id: sessionId,
                     p_sender_uid: currentUid,
+                    p_contents: content,
                     p_content: content,
                     p_session_token: getSessionToken()
                 });
@@ -1506,7 +1280,7 @@
                 showSnackbar('智能体已添加');
                 document.getElementById('agentApiKey').value = '';
                 closeAddAgentDialog();
-                broadcastSystemMsg(`智能体 ${name} 已加入聊天室`);
+                // v099: 公聊已删除，智能体加入公告不再广播
                 loadAgentList();
             } catch (e) {
                 showSnackbar('保存失败');
@@ -1570,10 +1344,10 @@
 
         function logout() {
             if (privatePollTimer) { clearInterval(privatePollTimer); privatePollTimer = null; }
-            // v040: Clean up public chat polling timers
-            if (_publicPollTimer) { clearInterval(_publicPollTimer); _publicPollTimer = null; }
-            if (_publicBackupPollTimer) { clearInterval(_publicBackupPollTimer); _publicBackupPollTimer = null; }
-            _publicRetryCount = 0;
+            // v099: 清理群聊轮询/消息状态
+            stopGroupListPolling();
+            stopGroupMsgPolling();
+            leaveGroupChat();
             // 清理登出后仍会运行的后台定时器
             if (privateStatusInterval) { clearInterval(privateStatusInterval); privateStatusInterval = null; }
             if (_cloudControlInterval) { clearInterval(_cloudControlInterval); _cloudControlInterval = null; }
@@ -1583,23 +1357,30 @@
             privateOtherReadTs = '';
             localStorage.removeItem(LS_KEYS.SESSION);
             // v053: 登出时重置免打扰状态
-            _mutePublic = false;
             _mutePerPrivateSession = {};
-            localStorage.removeItem(LS_KEYS.PUBLIC_MUTED);
+            _muteGroups = {};
             localStorage.removeItem(LS_KEYS.PRIVATE_MUTED);
+            localStorage.removeItem(LS_KEYS.GROUP_MUTED);
             currentUser = '';
             currentUid = 0;
-            publicMessages = [];
-            publicMessageById.clear();
+            // v097: 登出清理好友数据
+            try { if (window.friendModule && typeof window.friendModule.reset === 'function') window.friendModule.reset(); } catch (e) {}
+            // v099: 登出清理群聊数据
+            try { if (window.groupModule && typeof window.groupModule.reset === 'function') window.groupModule.reset(); } catch (e) {}
+            groupMessages = [];
+            groupMessageById = new Map();
+            groupUnreadByGid = {};
+            myGroups = [];
+            currentGroupId = null;
+            currentGroupInfo = null;
+            _lastGroupMsgAt = {};
+            _groupReadAt = {};
             privateMessages = [];
             isEntered = false;
             privateChatActive = false;
-            publicUnread = 0;
             privateUnreadCounts = {};
             userAvatarCache = {};
-            publicHasMore = true;
             privateHasMore = true;
-            publicLoadingMore = false;
             privateLoadingMore = false;
             document.getElementById('authContainer').style.display = 'flex';
             document.getElementById('appContainer').style.display = 'none';
@@ -1805,14 +1586,21 @@
             } catch (e) { showSnackbar('操作失败'); }
         }
 
-        // v053: 群聊免打扰切换
-        function togglePublicMute() {
-            _mutePublic = !_mutePublic;
-            showSnackbar(_mutePublic ? '已开启群聊消息免打扰' : '已关闭群聊消息免打扰');
-            try { localStorage.setItem(LS_KEYS.PUBLIC_MUTED, _mutePublic ? '1' : '0'); } catch(e) {}
+        // v099: 群聊免打扰切换（per-group）
+        function toggleGroupMute() {
+            if (!currentGroupId) { showSnackbar('请先打开一个群聊'); return; }
+            _muteGroups[currentGroupId] = !_muteGroups[currentGroupId];
+            const muted = _muteGroups[currentGroupId];
+            showSnackbar(muted ? '已开启群聊消息免打扰' : '已关闭群聊消息免打扰');
+            try { localStorage.setItem(LS_KEYS.GROUP_MUTED, JSON.stringify(_muteGroups)); } catch(e) {}
             updatePublicMenu();
-            updatePublicBadge();
+            renderGroupList();
             updateBackBadge();
+        }
+
+        // v053: 兼容旧函数名（无当前群时按全局开关处理，仅提示）
+        function togglePublicMute() {
+            toggleGroupMute();
         }
 
         // v053: 私聊按会话免打扰切换

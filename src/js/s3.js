@@ -1,7 +1,7 @@
 /* KnockChat 服务端桥接层：所有服务端数据访问经由 HTTP 调用 Cloudflare Worker API（POST /rpc）。
  * 云存储凭证只存在于 Worker Secret 环境变量与 BELL 管理端配置，客户端（含打包 exe）不包含任何密钥。
  * 用法：
- *   const { data, error } = await s3.rpc('send_public_message_secure', { p_username, ... });
+ *   const { data, error } = await s3.rpc('send_private_message', { p_username, ... });
  *   const status = await s3.status();
  */
 
@@ -22,9 +22,9 @@ window.s3 = (function() {
         verify_login_secure_rate_limited: 1, verify_login_secure: 1, verify_login: 1,
         verify_session_secure: 1, verify_session: 1, record_login: 1,
         check_username_exists: 1, register_user_secure: 1, register_user: 1,
-        // 消息
-        send_public_message_secure: 1, send_private_message: 1, send_agent_message: 1,
-        delete_public_message: 1, delete_private_message: 1, mark_private_messages_read: 1,
+        // 消息（v100：公聊已移除，群聊走 send_group_message_secure）
+        send_group_message_secure: 1, send_private_message: 1,
+        delete_group_message: 1, delete_private_message: 1, mark_private_messages_read: 1,
         // 智能体
         get_agents: 1, save_agent: 1, delete_agent_rpc: 1, call_agent_llm_rate_limited: 1,
         // 账号/会话/媒体
@@ -34,7 +34,7 @@ window.s3 = (function() {
     };
     // 高频轮询/静默类 RPC：成功时一律不记
     var RPC_NOISY = {
-        get_public_messages: 1, get_private_messages: 1, get_private_sessions: 1,
+        get_group_messages: 1, get_my_groups: 1, get_private_messages: 1, get_private_sessions: 1,
         get_user_profile: 1, get_media_url: 1, get_cloud_control: 1, mention_candidates: 1
     };
     function logRpc(name, ms, err) {

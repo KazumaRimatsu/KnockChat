@@ -6,6 +6,7 @@
  *     __rtOnOnlineList(users)   新连接初始化（当前在线用户列表）
  *     __rtOnPresence(uid, username, online)  某用户上下线
  *     __rtOnRead(sessionId, uid, ts)  对方已读回执
+ *     __rtOnFriendUpdate(payload)     好友关系变更（加/删好友，立即刷新好友列表）
  */
 
 window.rt = (function() {
@@ -69,6 +70,7 @@ window.rt = (function() {
             else if (data.type === 'online_list') dispatch('__rtOnOnlineList', [data.users || []]);
             else if (data.type === 'presence') dispatch('__rtOnPresence', [data.uid, data.username, data.online]);
             else if (data.type === 'read') dispatch('__rtOnRead', [data.session_id, data.uid, data.ts]);
+            else if (data.type === 'friend_update') dispatch('__rtOnFriendUpdate', [data.payload || {}]);
         };
         socket.onclose = function() {
             clearInterval(heartbeat);

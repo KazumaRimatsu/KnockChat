@@ -306,6 +306,12 @@
                 infoList.innerHTML = '<div style="text-align:center;padding:40px;color:var(--md-error);">加载失败: ' + escapeHtml(e.message || '') + '</div>';
                 removeBgLoader();
             }
+            // v097: 好友操作栏（好友/非好友差异化按钮），独立于资料加载结果渲染
+            try {
+                if (typeof window.renderDetailActions === 'function') {
+                    window.renderDetailActions(_udTargetUser, _udTargetIsSelf);
+                }
+            } catch (ex) { /* ignore */ }
         }
 
         // ============ 编辑资料页 ============
@@ -544,7 +550,7 @@
                 if (_epAvatarFile) {
                     const avErr = fileSizeError(_epAvatarFile, MAX_AVATAR_FINAL_SIZE, '头像');
                     if (avErr) { if (overlay) overlay.remove(); btn.disabled = false; showSnackbar(avErr); return; }
-                    const avPath = 'avatars/' + hashStr(currentUser) + '-' + Date.now() + '.jpg';
+                    const avPath = 'resrc/usr_ava/' + hashStr(currentUser) + '-' + Date.now() + '.jpg';
                     const uploadedAvatarUrl = await uploadToBucket(avPath, _epAvatarFile, 'image/jpeg');
                     if (!uploadedAvatarUrl) { if (overlay) overlay.remove(); btn.disabled = false; return; }
                     newAvatarUrl = uploadedAvatarUrl;
@@ -563,7 +569,7 @@
                 if (_epBgFile) {
                     const bgErr = fileSizeError(_epBgFile, MAX_BG_FINAL_SIZE, '背景图');
                     if (bgErr) { if (overlay) overlay.remove(); btn.disabled = false; showSnackbar(bgErr); return; }
-                    const bgPath = 'background/' + currentUser + '_' + Date.now() + '.jpg';
+                    const bgPath = 'resrc/usr_bkg/' + currentUser + '_' + Date.now() + '.jpg';
                     const uploadedBgUrl = await uploadToBucket(bgPath, _epBgFile, 'image/jpeg');
                     if (!uploadedBgUrl) { if (overlay) overlay.remove(); btn.disabled = false; return; }
                     newBgUrl = uploadedBgUrl;
@@ -590,7 +596,6 @@
                         if (typeof loadPrivateSessions === 'function') loadPrivateSessions();
                         if (typeof updateHomeMenu === 'function') updateHomeMenu();
                         if (typeof updatePublicMenu === 'function') updatePublicMenu();
-                        if (typeof updatePublicEntry === 'function') updatePublicEntry();
                     }
                 }, 100);
             } catch (e) {

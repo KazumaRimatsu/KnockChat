@@ -271,13 +271,14 @@ var CikaAI = (function() {
         return loadingEl;
     }
 
-    // v071: 根据消息行定位消息对象（公聊/私聊），用于把译文写入消息并随缓存落盘
+    // v071: 根据消息行定位消息对象（私聊/群聊），用于把译文写入消息并随缓存落盘
     function findMessageByRow(row) {
         if (!row) return null;
         var id = row.dataset.msgId;
         if (!id) return null;
-        var isPrivate = !!(row.closest && row.closest('#privateMessages'));
-        var list = isPrivate ? privateMessages : publicMessages;
+        // v099: 群聊消息容器复用了 #publicMessages DOM（原公聊已移除），消息对象从 groupMessages 查
+        var inPrivate = !!(row.closest && row.closest('#privateMessages'));
+        var list = inPrivate ? privateMessages : groupMessages;
         if (!Array.isArray(list)) return null;
         for (var i = 0; i < list.length; i++) {
             if (list[i] && list[i].id === id) return list[i];
@@ -308,7 +309,7 @@ var CikaAI = (function() {
         var msgObj = findMessageByRow(row);
         if (msgObj) {
             msgObj.translation = text;
-            // v072: 私聊译文就地同步到会话缓存（公聊缓存在落盘时从 publicMessages 重取）
+            // v072: 私聊译文就地同步到会话缓存（群聊缓存在落盘时从 groupMessages 重取）
             if (typeof privateSessionId === 'string' && privateSessionId) updateCachedMessageFields(privateSessionId, msgObj);
             scheduleMessageCacheSave();
         }
