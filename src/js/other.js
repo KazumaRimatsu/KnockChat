@@ -225,9 +225,26 @@
         function buildContents(type, payload) {
             const obj = { type: type };
             for (var k in payload) {
-                if (payload.hasOwnProperty(k)) obj[k] = payload[k];
+                if (payload.hasOwnProperty(k)) {
+                    // v103: 文本消息内容 Base58 编码后提交（b58: 前缀），后端原样存储密文、读取时解码
+                    obj[k] = (type === 'text' && k === 'content') ? 'b58:' + base58EncodeText(payload[k]) : payload[k];
+                }
             }
             return JSON.stringify(obj);
+        }
+
+        // Base58 字符集（比特币风格：去掉易混淆的 0 O I l），与后端 util.ts 保持一致
+        const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+        // 文本 → Base58（UTF-8 字节 + BigInt 大数，前导零字节映射为 '1'）
+        function base58EncodeText(text) {
+            const bytes = new TextEncoder().encode(String(text));
+            let x = 0n;
+            for (const b of bytes) x = x * 256n + BigInt(b);
+            let out = '';
+            while (x > 0n) { out = B58_ALPHABET[Number(x % 58n)] + out; x /= 58n; }
+            for (const b of bytes) { if (b === 0) out = '1' + out; else break; }
+            return out;
         }
 
         // 解析消息 contents：兼容字符串/对象；旧消息回退 text/image_url/audio_url 字段
