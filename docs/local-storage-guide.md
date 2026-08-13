@@ -1,8 +1,9 @@
-# 本地存储指南（KnockChat）
+# 本地存储文档及约定
 
-本文档梳理 KnockChat 存储在**本机**（`localStorage` / `sessionStorage` / Cache API）的全部数据键，便于维护与排查。
+本文档梳理了敲敲存储在**本机**（`localStorage` / `sessionStorage` / Cache API）的全部数据键，便于维护与排查。
 
 > 所有键名统一在 `src/js/constants.js` 的 `LS_KEYS` 中**集中定义**，业务代码一律通过 `LS_KEYS.xxx` 引用，禁止散落字符串字面量。
+>
 > ⚠️ 键名即实际存储 key，**改动会破坏现有用户数据/配置/缓存**，非必要勿修改。新增存储键必须先加入 `LS_KEYS`。
 
 ***
@@ -26,10 +27,11 @@
 
 ### 加密配置包含的子设置（解密后）
 
-- 主题、主题色
+- 主题（`theme` / `themeId`）、主题色（`themeColor`）
+- 字体（`fontId`）、字号缩放（`fontScaleId`）、字重（`fontWeightId`）
 - 未读状态 `{publicLastRead, privateLastRead}`（`publicLastRead` 为公聊遗留字段，公聊移除后恒为 `null`）
-- 已关闭的隐私横幅集合
-- 通知设置 `{showNotify, public, private, mention, sound, sampleRate}`
+- 已关闭的隐私横幅集合（`dismissedPrivacyBanners`）
+- 通知设置 `{sound, publicEnabled, privateEnabled}`
 
 ## 3. AI 设置（localStorage，AES 加密，含 API Key）
 
@@ -42,8 +44,8 @@
 
 ## 4. 聊天缓存（localStorage，加密）
 
-| 键                            | LS\_KEYS 常量        | 用途                      |
-| ---------------------------- | ------------------ | ----------------------- |
+| 键                            | LS\_KEYS 常量        | 用途                                            |
+| ---------------------------- | ------------------ | --------------------------------------------- |
 | `mjchat_msgcache_<username>` | `MSG_CACHE_PREFIX` | 聊天记录加密缓存（群聊/私聊历史，供离线浏览；群聊按 gid 隔离，每群上限 200 条） |
 
 ## 5. 媒体缓存（localStorage）
@@ -59,7 +61,9 @@
 | 键                     | LS\_KEYS 常量   | 用途                 |
 | --------------------- | ------------- | ------------------ |
 | `cika_theme_store_v1` | `THEME_STORE` | 主题状态（当前主题、自定义主题列表） |
-| `cika_font_store_v1`  | `FONT_STORE`  | 字体设置（字体族、字号缩放）     |
+| `cika_font_store_v1`  | `FONT_STORE`  | 字体设置（字体族、字号缩放、字重）     |
+
+> 字体族由 FontManager（`src/js/fonts.js`）管理，字号缩放与字重由 TypographyManager 管理（同文件导出，写入 `--app-font-scale` / `--app-font-weight-*`）；当前激活的 `fontId` / `fontScaleId` / `fontWeightId` 会随云端同步跨设备恢复。
 
 > 当前激活的主题/字体 id 会随云端同步跨设备恢复；**自定义主题的完整定义仅存本机**（不随云同步），换设备后若云端主题 id 对应的自定义主题不存在，将回退到内置暗黑主题。
 
@@ -73,8 +77,8 @@
 
 | 键                           | LS\_KEYS 常量     | 用途                               |
 | --------------------------- | --------------- | -------------------------------- |
-| `mjchat_public_muted`       | `PUBLIC_MUTED`  | 公聊免打扰（`'1'`/`'0'`；公聊已移除，兼容清理用）  |
-| `mjchat_group_muted`        | `GROUP_MUTED`   | 群聊免打扰（`{gid: true}`，v099）               |
+| `mjchat_public_muted`       | `PUBLIC_MUTED`  | 公聊免打扰（`'1'`/`'0'`；公聊已移除，兼容清理用）   |
+| `mjchat_group_muted`        | `GROUP_MUTED`   | 群聊免打扰（`{gid: true}`，v099）        |
 | `mjchat_private_muted`      | `PRIVATE_MUTED` | 私聊会话免打扰（`{sessionId: true}`）     |
 | `mjchat_blockword_settings` | `BLOCKWORD`     | 屏蔽词设置 `{enabled, types, method}` |
 | `mjchat_page_stack`         | `PAGE_STACK`    | 页面导航栈（恢复上次所在页）                   |

@@ -79,6 +79,9 @@ knockchat（存储桶名，可在雨云控制台自由命名）
 │     ├── usr_ava/                      用户头像
 │     └── usr_bkg/                      用户个人主页背景
 ├── media/emoji/<uid>/                  用户表情（v100 保留历史前缀）
+├── agents/                             智能体（Golem 机器人）配置
+│     ├── <id>.json                     智能体配置（昵称/简介/头像/归属账号/bot_key_hash 等）
+│     └── by_name/<编码名>.json         智能体名称 → 配置索引
 └── upd/                                应用更新包（latest.json 元数据 + 安装包）
 ```
 
@@ -88,10 +91,11 @@ knockchat（存储桶名，可在雨云控制台自由命名）
 - 群消息 id 使用**十六进制毫秒时间戳前缀**，S3 按字典序返回对象，天然即"按时间排序"，配合 `p_before_id` / `p_after_id` 实现翻页。
 - 私聊会话 id 由两个 uid（数值排序后拼接）确定性生成，双方计算出相同 id，无需单独分配。
 - 好友关系为**双向**：互加成功时双方 `users/{uid}/friends.json` 同时写入，删除同样双向移除。
-- 群管理（v100.x）：群主可编辑管理员（每群最多 25 名）；群主与管理员可修改群资料、删除/上传群文件、删除成员消息（留系统提示、多媒体文件联动删除）、禁言（1 分钟 ~ 7 天，个人/全体）与踢人；仅群主可清空群消息。禁言截止时间分别存于成员 `mute_until` 与群信息 `mute_all_until`（全体禁言时管理员/群主豁免）。
+- 群管理（v100.x / v102）：群主可编辑管理员（每群最多 25 名）与**转让群主**（v102，转让后降为普通成员）；群主与管理员可修改群资料、删除/上传群文件、删除成员消息（留系统提示、多媒体文件联动删除）、禁言与踢人；仅群主可清空群消息。禁言支持**自定义时长**（v102，1 分钟 ~ 7 天 / 1~10080 分钟，个人/全体），截止时间分别存于成员 `mute_until` 与群信息 `mute_all_until`（全体禁言时管理员/群主豁免）。
 - 群文件用量：`groups/<gid>/files/` 为「群文件」配额（每群 256MB，群文件页展示已用/上限）；图片（`image/`）与语音（`voice/`）不计入，删除多媒体消息时其引用的文件会一并删除。
 - 群邀请 / 好友申请为**收发双向同文件**：`invites/{uid}/groups.json`（`friends.json`）同时记录该用户「收到」与「发出」的未受理记录，对象内 `from_uid` / `to_uid` 用于推导方向。
 - 实时功能由 Durable Object（`RealtimeRoom`，SQLite 存储）承载，**不写入 S3**。
+- 智能体（Golem 机器人，v103）：`agents/<id>.json` 存配置（归属账号、`bot_key_hash` 等），`agents/by_name/` 为名称索引；机器人同时拥有 `users/<uid>/info.json` 中 `role: "agent"` 的账号（密码随机不可登录，凭证为 `login_key`，见 `docs/milky-protocol-guide.md`）。
 - 密码不落明文：前端 SHA-256 预哈希 → 服务端存储哈希值（登录时比对哈希）。
 
 ***
@@ -201,9 +205,11 @@ wrangler secret put ADMIN_KEY      # BELL 管理端鉴权密钥（所有 /admin/
 | `groups/<gid>/image/` | 8MB  | 不限（群聊图片，不占群文件配额）  |
 | `groups/<gid>/voice/` | 8MB  | 不限（群语音，不占群文件配额）   |
 | `private/<sid>/files/` | 32MB | 不限（私聊附件/语音）    |
+| `media/emoji/<uid>/`  | 2MB  | 仅图片（用户级自定义表情，每用户 ≤ 64 个） |
 | 其他/未知前缀            | 8MB  | 不限               |
 
 > 服务端在 base64 解码后按对象 Key 前缀判断，超限返回错误、不写桶；`resrc/*` 用途仅接受 `image/*` 类型。
+> 自定义表情走独立 RPC（`upload_emoji`，v091）：仅接受 `image/*`、单张 ≤ 2MB、每用户 ≤ 64 张，Key 强校验归属防越权。
 > （v100：公聊已移除；媒体路径为目录式，`media/avatars/`、`media/background/`、`media/group/`、`media/private/` 已不再读写。
 > v100.x：群聊图片/语音分别落到 `groups/<gid>/image/` 与 `groups/<gid>/voice/`，不再与群文件混用 `files/`；`list_media` 对群文件前缀返回 `{files, total_size, file_count, max_size}` 供用量展示，`upload_media` 对 `files/` 校验每群 256MB 总容量。）
 

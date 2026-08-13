@@ -82,7 +82,7 @@ body.chatbar-resizing {
 .public-page .chat-bar .input-container,
 .private-page .chat-bar .input-container {
     display: flex;
-    align-items: flex-end;
+    align-items: flex-start;
     flex: 1;
     min-width: 0;
     min-height: 64px;
