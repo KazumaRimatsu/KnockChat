@@ -558,6 +558,9 @@
                 userAvatarCache[currentUser] = currentAvatarUrl;
                 const sessionToken = userData.session_token || await hashPassword(passwordHash);
                 localStorage.setItem(LS_KEYS.SESSION, JSON.stringify({ username: currentUser, uid: currentUid, token: sessionToken, pwhash: passwordHash }));
+                // v090 修复：写入新会话后必须清 token 缓存，否则登出后再次登录会
+                // 继续用旧 token 发起 RPC，被服务端判为会话失效而强制下线
+                invalidateSessionTokenCache();
                 // Initialize encrypted user settings with password hash as key
                 initUserSettings(passwordHash, currentUser).catch(function(e) { console.warn('initUserSettings failed:', e); });
                 document.getElementById('loginPassword').value = '';
@@ -1365,6 +1368,8 @@
             _onlineUsers = {};
             privateOtherReadTs = '';
             localStorage.removeItem(LS_KEYS.SESSION);
+            // v090 修复：登出清会话时同步清 token 缓存，否则再次登录会用旧 token 被强制下线
+            invalidateSessionTokenCache();
             // v053: 登出时重置免打扰状态
             _mutePerPrivateSession = {};
             _muteGroups = {};
