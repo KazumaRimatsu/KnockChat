@@ -917,7 +917,7 @@
         function toggleGroupSendBtn() {
             const btn = document.getElementById('publicSendBtn');
             if (btn.classList.contains('sending')) return; // 发送中不干预，防止 oninput 误恢复按钮
-            btn.disabled = !document.getElementById('publicMsgInput').value.trim() &&
+            btn.disabled = !readInputValue(document.getElementById('publicMsgInput')).trim() &&
                 !replyTarget;
         }
 
@@ -943,8 +943,7 @@
 
         async function updateMentionFromInput(input) {
             if (!input || input.id !== 'publicMsgInput') return;
-            const pos = (typeof input.selectionStart === 'number') ? input.selectionStart : input.value.length;
-            const before = input.value.substring(0, pos);
+            const before = getTextBeforeCursor(input);
             const m = before.match(/@([\w\u4e00-\u9fa5]*)$/);
             if (m) {
                 const prefix = m[1] || '';
@@ -1031,13 +1030,15 @@
             const c = mentionCandidates[mentionSel];
             if (!c) { closeMentionMenu(); return; }
             const input = document.getElementById('publicMsgInput');
-            const pos = (typeof input.selectionStart === 'number') ? input.selectionStart : input.value.length;
-            const before = input.value.substring(0, pos);
-            const after = input.value.substring(pos);
-            const replaced = before.replace(/@[\w\u4e00-\u9fa5]*$/, '@' + c.username + ' ');
-            input.value = replaced + after;
-            const newPos = replaced.length;
-            try { input.setSelectionRange(newPos, newPos); } catch (e) { /* ignore */ }
+            const atText = '@' + c.username + ' ';
+            if (!replaceMentionText(input, atText)) {
+                // 光标不在文本节点（如紧邻表情图）时兜底：按光标前后文本重建
+                const before = getTextBeforeCursor(input);
+                const replaced = before.replace(/@[\w\u4e00-\u9fa5]*$/, atText);
+                clearInput(input);
+                insertTextAtCursor(input, replaced);
+                insertTextAtCursor(input, getTextAfterCursor(input));
+            }
             autoResize(input);
             toggleGroupSendBtn();
             closeMentionMenu();
@@ -1060,6 +1061,8 @@
         }
 
         function handleGroupKeyDown(e) {
+            // 中文输入法组合中按 Enter 确认候选词：不发送、不触发 @ 选择
+            if (e.isComposing || e.keyCode === 229) return;
             // @ 菜单打开时优先响应选择键
             if (mentionActive && mentionCandidates.length > 0) {
                 if (e.key === 'ArrowDown') { e.preventDefault(); moveMentionSel(1); return; }
@@ -1082,7 +1085,7 @@
             }
             // v099: 防重复提交——发送中忽略再次触发
             if (_groupSending) return;
-            let text = input.value.trim();
+            let text = readInputValue(input).trim();
             if (!text && !replyTarget) {
                 showSnackbar('请输入内容');
                 return;
@@ -1127,8 +1130,7 @@
             if (result.message) {
                 handleGroupMessage(currentGroupId, result.message);
             }
-            input.value = '';
-            autoResize(input);
+            clearInput(input);
             cancelGroupReply();
             _groupSending = false;
             setSendState('publicSendBtn', false); // 先恢复再重算（清空输入后按钮应为禁用态）
@@ -1335,15 +1337,10 @@
             const input = document.getElementById('publicMsgInput');
             if (!input) return;
             const atText = `@${sender} `;
-            const start = input.selectionStart;
-            const end = input.selectionEnd;
             // Avoid duplicate consecutive @mentions
-            const before = input.value.substring(0, start);
-            if (before.endsWith(atText) && end === start) return;
-            input.value = before + atText + input.value.substring(end);
+            if (getTextBeforeCursor(input).endsWith(atText)) return;
+            insertTextAtCursor(input, atText);
             input.focus();
-            const newPos = start + atText.length;
-            input.setSelectionRange(newPos, newPos);
             autoResize(input);
             toggleGroupSendBtn();
         }
@@ -1351,12 +1348,8 @@
         function insertAtMentionPrivate(sender) {
             const input = document.getElementById('privateMsgInput');
             const atText = `@${sender} `;
-            const start = input.selectionStart;
-            const end = input.selectionEnd;
-            input.value = input.value.substring(0, start) + atText + input.value.substring(end);
+            insertTextAtCursor(input, atText);
             input.focus();
-            const newPos = start + atText.length;
-            input.setSelectionRange(newPos, newPos);
             autoResize(input);
             togglePrivateSendBtn();
         }
@@ -1604,6 +1597,44 @@
             menu.classList.remove('show');
             menu.innerHTML = '';
         }
+
+        // 全局 Esc：逐层关闭浮层（消息右键菜单 → 用户菜单 → 表情/特效浮层 → 语音模式 → 对话框）。
+        // @ 提及菜单的 Esc 已在其内部处理（e.preventDefault），此处通过 defaultPrevented 跳过避免重复。
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape' || e.defaultPrevented) return;
+            // 1. 消息右键菜单
+            const ctxMenu = document.getElementById('msgContextMenu');
+            if (ctxMenu && ctxMenu.classList.contains('show')) { closeContextMenu(); return; }
+            // 2. 用户菜单（home/公聊/私聊）
+            const menuOverlays = ['homeMenuOverlay', 'publicMenuOverlay', 'privateMenuOverlay'];
+            for (const id of menuOverlays) {
+                const o = document.getElementById(id);
+                if (o && o.classList.contains('show')) { o.classList.remove('show'); return; }
+            }
+            // 3. 表情浮窗 / 文字特效子面板
+            if (document.querySelector('.emoji-popup.show')) {
+                if (typeof closeSubPanel === 'function') closeSubPanel();
+                if (typeof privateCloseSubPanel === 'function') privateCloseSubPanel();
+                return;
+            }
+            if (document.querySelector('.feature-panel .sub-panel.active')) {
+                if (typeof closeSubPanel === 'function') closeSubPanel();
+                if (typeof privateCloseSubPanel === 'function') privateCloseSubPanel();
+                return;
+            }
+            // 4. 语音模式（按住说话）：Esc 退出语音模式恢复文本输入
+            const voiceMode = document.querySelector('.voice-mode:not(.hidden)');
+            if (voiceMode && typeof toggleVoiceMode === 'function') {
+                toggleVoiceMode(voiceMode.id.startsWith('public') ? 'public' : 'private', true);
+                return;
+            }
+            // 5. 对话框遮罩（从最上层向下找可见的，模拟遮罩点击关闭）
+            const overlays = document.querySelectorAll('.dialog-overlay');
+            for (let i = overlays.length - 1; i >= 0; i--) {
+                const d = overlays[i];
+                if (!d.classList.contains('hidden')) { d.click(); return; }
+            }
+        });
 
         async function contextDeleteMsg() {
             if (!contextTarget) { showSnackbar('无效操作'); return; }
@@ -1922,7 +1953,8 @@
             privateHasMore = true;
             privateLoadingMore = false;
             document.getElementById('privateChatTitle').textContent = otherUser;
-            if (dismissedPrivacyBanners.has(otherUser)) {
+            // 已添加为好友的私聊永久不显示「临时私聊」提示；其余按用户是否关闭过该提示
+            if (isFriendPrivateChat() || dismissedPrivacyBanners.has(otherUser)) {
                 document.getElementById('privacyBanner').classList.add('hidden-banner');
             } else {
                 document.getElementById('privacyBanner').classList.remove('hidden-banner');
@@ -1953,8 +1985,17 @@
             }, 50);
         }
 
+        // 是否与好友私聊：已添加为好友的私聊永久隐藏「临时私聊」提示
+        function isFriendPrivateChat() {
+            try {
+                if (!window.friendModule || typeof window.friendModule.isFriend !== 'function') return false;
+                return !!(window.friendModule.isFriend(privateOtherUid) ||
+                    (privateOtherUser && window.friendModule.isFriend(privateOtherUser)));
+            } catch (e) { return false; }
+        }
+
         function checkPrivacyBanner() {
-            if (dismissedPrivacyBanners.has(privateOtherUser)) {
+            if (isFriendPrivateChat() || dismissedPrivacyBanners.has(privateOtherUser)) {
                 document.getElementById('privacyBanner').classList.add('hidden-banner');
                 return;
             }
@@ -2236,7 +2277,7 @@
             const c = document.getElementById('publicMessages');
             if (c) c.innerHTML = '';
             const input = document.getElementById('publicMsgInput');
-            if (input) input.value = '';
+            if (input) clearInput(input);
             cancelGroupReply();
             switchPage('publicPage', true);
             pushPageHistory('group');
@@ -2263,7 +2304,7 @@
             const c = document.getElementById('publicMessages');
             if (c) c.innerHTML = '';
             const input = document.getElementById('publicMsgInput');
-            if (input) input.value = '';
+            if (input) clearInput(input);
             updateGroupHeader();
             updateSidebarHighlight();
         }
@@ -2579,12 +2620,14 @@
         function togglePrivateSendBtn() {
             const btn = document.getElementById('privateSendBtn');
             if (btn.classList.contains('sending')) return; // 发送中不干预
-            const hasText = document.getElementById('privateMsgInput').value.trim();
+            const hasText = readInputValue(document.getElementById('privateMsgInput')).trim();
             const hasReply = !!privateReplyTarget;
             btn.disabled = !hasText && !hasReply;
         }
 
         function handlePrivateKeyDown(e) {
+            // 中文输入法组合中按 Enter 确认候选词不发送
+            if (e.isComposing || e.keyCode === 229) return;
             if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
                 e.preventDefault();
                 sendPrivateMsg();
@@ -2612,7 +2655,7 @@
         async function sendPrivateMsg() {
             if (!privateSessionId || !privateChatActive) return;
             const input = document.getElementById('privateMsgInput');
-            let text = input.value.trim();
+            let text = readInputValue(input).trim();
             if (!text && !privateReplyTarget) return;
             // v091: 自定义表情码（mjv064 emoji）先保护再 cleanHtml，避免标签被剥离
             text = sanitizeWithEmoji(text || '');
@@ -2681,8 +2724,7 @@
             }
 
             appendPrivateMsgLocally(newMsg, true);
-            input.value = '';
-            autoResize(input);
+            clearInput(input);
             cancelPrivateReply();
             setSendState('privateSendBtn', false); // 先恢复再重算（清空输入后按钮应为禁用态）
             togglePrivateSendBtn();

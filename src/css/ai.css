@@ -11,7 +11,7 @@
 
 .ai-form .translate-hint {
     padding: 0 4px;
-    font-size: 0.875rem;
+    font-size: var(--md-font-size-base);
     color: var(--md-on-surface-variant);
 }
 
@@ -30,7 +30,7 @@
     border-radius: var(--radius-sm);
     border-left: var(--md-accent-border);
     background: var(--md-surface-container-low);
-    font-size: 0.875rem;
+    font-size: var(--md-font-size-base);
     line-height: 1.5;
     cursor: pointer;
     animation: ai-translation-enter 0.2s ease-out;
@@ -41,10 +41,11 @@
     margin-top: 8px;
     padding: 8px 12px;
     border-radius: var(--radius-sm);
-    border-left: 3px solid var(--md-error);
+    border-left: var(--md-accent-border);
+    border-left-color: var(--md-error);
     background: var(--md-error-container);
     color: var(--md-on-error-container);
-    font-size: 0.875rem;
+    font-size: var(--md-font-size-base);
     line-height: 1.5;
     animation: ai-translation-enter 0.2s ease-out;
 }
@@ -70,7 +71,7 @@
 .ai-translation .ai-translation-label {
     display: block;
     margin-bottom: 4px;
-    font-size: 0.75rem;
+    font-size: var(--md-font-size-sm);
     color: var(--md-on-surface-variant);
 }
 
@@ -78,8 +79,8 @@
 .msg-warning .msg-warning-label {
     display: block;
     margin-bottom: 4px;
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-size: var(--md-font-size-sm);
+    font-weight: var(--md-font-weight-bold);
     color: var(--md-error);
 }
 
@@ -89,11 +90,11 @@
     align-items: center;
     margin-top: 8px;
     padding: 8px 12px;
-    border: 1px dashed var(--md-error);
+    border: var(--md-outline-width) var(--md-outline-dashed) var(--md-error);
     border-radius: var(--radius-sm);
     background: var(--md-error-container);
     color: var(--md-on-error-container);
-    font-size: 0.875rem;
+    font-size: var(--md-font-size-base);
     line-height: 1.5;
     cursor: pointer;
     user-select: none;
@@ -120,19 +121,19 @@
 }
 
 .blockword-row-label {
-    font-size: 0.925rem;
+    font-size: var(--md-font-size-base);
     color: var(--md-on-surface);
 }
 
 .blockword-hint {
-    font-size: 0.75rem;
+    font-size: var(--md-font-size-sm);
     color: var(--md-on-surface-variant);
 }
 
 .blockword-section-label {
     margin-top: 8px;
-    font-size: 0.75rem;
-    font-weight: 600;
+    font-size: var(--md-font-size-sm);
+    font-weight: var(--md-font-weight-bold);
     color: var(--md-on-surface-variant);
 }
 
@@ -155,7 +156,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    font-size: 0.875rem;
+    font-size: var(--md-font-size-base);
     color: var(--md-on-surface);
     cursor: pointer;
 }
@@ -163,16 +164,23 @@
 .blockword-check input,
 .blockword-radio input {
     accent-color: var(--md-primary);
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     flex-shrink: 0;
 }
 
+.blockword-check input:focus-visible,
+.blockword-radio input:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
+}
+
+/* MD3 开关：52×32dp 轨道、24dp 滑块、圆角 full、2dp 边框 */
 .blockword-switch {
     position: relative;
     display: inline-block;
-    width: 40px;
-    height: 22px;
+    width: 52px;
+    height: 32px;
     flex-shrink: 0;
 }
 
@@ -185,22 +193,22 @@
 .blockword-switch-track {
     position: absolute;
     inset: 0;
-    border-radius: 22px;
+    border-radius: var(--radius-full);
     background: var(--md-surface-container-highest);
-    border: 1px solid var(--md-outline);
+    border: 2px solid var(--md-outline);
     transition: background 0.2s ease, border-color 0.2s ease;
 }
 
 .blockword-switch-track::after {
     content: '';
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
+    top: 4px;
+    left: 4px;
+    width: 24px;
+    height: 24px;
     border-radius: 50%;
     background: var(--md-on-surface-variant);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--md-elevation-1);
     transition: transform 0.2s ease, background 0.2s ease;
 }
 
@@ -210,8 +218,17 @@
 }
 
 .blockword-switch input:checked + .blockword-switch-track::after {
-    transform: translateX(18px);
+    transform: translateX(24px);
     background: var(--md-on-primary);
+}
+
+.blockword-switch input:disabled + .blockword-switch-track {
+    opacity: 0.38;
+}
+
+.blockword-switch input:focus-visible + .blockword-switch-track {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
 }
 
 .ai-translation .ai-translation-text {

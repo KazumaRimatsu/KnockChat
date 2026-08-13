@@ -11,18 +11,20 @@
 
 .search-page .search-box input {
     width: 100%;
-    padding: 10px 16px;
+    height: 56px;
+    padding: 0 16px;
     border: var(--md-outline-width) var(--md-outline-style) var(--md-search-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-full);
     outline: none;
     background: var(--md-search-input-bg);
     font-family: inherit;
-    font-size: 0.9375rem;
+    font-size: var(--md-font-size-lg);
     color: var(--md-search-text);
+    transition: border-color 0.2s;
 }
 
 .search-page .search-box input:focus {
-    border-color: var(--md-search-input-focus-border);
+    border: var(--md-focus-border);
 }
 
 .search-page .search-box input::placeholder {
@@ -38,13 +40,18 @@
 .search-page .search-results .result-item {
     display: flex;
     align-items: center;
-    padding: 12px 16px;
+    min-height: 56px;
+    padding: 8px 16px;
     border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-search-border);
     cursor: pointer;
 }
 
 .search-page .search-results .result-item:hover {
     background: var(--md-search-item-hover);
+}
+
+.search-page .search-results .result-item:active {
+    background: var(--md-surface-container-highest);
 }
 
 .search-page .search-results .result-item .av {
@@ -58,7 +65,7 @@
     border-radius: 50%;
     background-size: cover;
     background-position: center;
-    font-weight: 700;
+    font-weight: var(--md-font-weight-bold);
     color: var(--md-avatar-text);
 }
 
@@ -69,13 +76,36 @@
 }
 
 .search-page .search-results .result-item .status {
-    font-size: 0.75rem;
+    font-size: var(--md-font-size-sm);
     color: var(--md-search-text-dim);
+}
+
+.search-page .search-results .result-item:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: -2px;
 }
 
 .search-page .search-results .empty {
     padding: 40px 0;
     text-align: center;
-    font-size: 0.875rem;
+    font-size: var(--md-font-size-base);
     color: var(--md-search-text-dim);
+}
+
+/* 搜索结果加载中：居中圆形加载动画（复用 md-circular-loader） */
+.search-page .search-results .search-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 44px 0;
+}
+
+.search-page .search-results .search-loading .md-circular-loader {
+    width: 30px;
+    height: 30px;
+}
+
+.search-page .search-results .search-loading .md-circular-loader svg {
+    width: 30px;
+    height: 30px;
 }

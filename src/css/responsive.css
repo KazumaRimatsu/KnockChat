@@ -23,6 +23,11 @@
         display: none;
     }
 
+    /* 移动端上下布局不适合拖拽输入区高度，隐藏手柄 */
+    .chat-bar-resizer {
+        display: none;
+    }
+
     .chat-main {
         flex: 1;
         height: auto;
@@ -38,8 +43,7 @@
 
     .public-page .chat-bar,
     .private-page .chat-bar {
-        gap: 4px;
-        padding: 6px 8px;
+        padding: 4px 8px 8px;
     }
 
     .public-page .chat-bar .fab-send,
@@ -58,7 +62,7 @@
     .public-page .chat-bar .input-container,
     .private-page .chat-bar .input-container {
         min-height: 40px;
-        padding: 0 4px 0 12px;
+        padding: 6px 10px;
     }
 
     .md-dialog {

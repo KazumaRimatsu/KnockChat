@@ -168,7 +168,7 @@
         if (!container) return;
         refreshBadge();
         if (!_loaded) {
-            container.innerHTML = '<div style="text-align:center;padding:40px;"><div class="md-circular-loader" style="width:32px;height:32px;margin:0 auto;"><svg viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"/></svg></div></div>';
+            container.innerHTML = '<div style="text-align:center;padding:40px;"><span class="md-circular-loader" style="width:32px;height:32px;margin:0 auto;"><svg viewBox="0 0 22 22" style="width:32px;height:32px;"><circle cx="11" cy="11" r="9.5"/></svg></span></div>';
             return;
         }
         if (_friends.length === 0) {
@@ -259,7 +259,7 @@
         if (!container) return;
         if (!q) { container.innerHTML = '<div class="empty">输入昵称搜索用户</div>'; return; }
         container.dataset.rendered = '1';
-        container.innerHTML = '<div style="text-align:center;padding:30px;"><div class="md-circular-loader" style="width:28px;height:28px;margin:0 auto;"><svg viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"/></svg></div></div>';
+        container.innerHTML = '<div style="text-align:center;padding:30px;"><span class="md-circular-loader" style="width:28px;height:28px;margin:0 auto;"><svg viewBox="0 0 22 22" style="width:28px;height:28px;"><circle cx="11" cy="11" r="9.5"/></svg></span></div>';
         searchUsers(q, function(results) {
             if (!results || results.length === 0) {
                 container.innerHTML = '<div class="empty">未找到用户「' + escapeHtml(q) + '」</div>';
@@ -313,14 +313,14 @@
                     var avStyle = avUrl ? ' style="background-image:url(\'' + escapeAttr(sanitizeAvatarUrl(avUrl)) + '\');background-size:cover;background-position:center;"' : '';
                     var avText = avUrl ? '' : escapeHtml(name.charAt(0).toUpperCase());
                     var time = formatTime(r.created_at);
-                    return '<div class="fr-req-item">' +
+                    return '<div class="fr-req-item" id="frReq_' + escapeJsString(r.id) + '">' +
                             '<div class="av av-' + idx + '"' + avStyle + '>' + avText + '</div>' +
                             '<div class="fr-req-info"><div class="fr-req-name">' + escapeHtml(name) + '</div>' +
                             '<div class="fr-req-msg">' + (r.message ? escapeHtml(r.message) : '请求添加你为好友') + '</div>' +
                             '<div class="fr-req-time">' + time + '</div></div>' +
                             '<div class="fr-req-actions">' +
-                            '<button class="fr-btn primary" onclick="acceptFriendRequest(\'' + escapeJsString(r.id) + '\')">同意</button>' +
-                            '<button class="fr-btn danger" onclick="rejectFriendRequest(\'' + escapeJsString(r.id) + '\')">拒绝</button>' +
+                            '<button class="fr-btn primary" data-action="accept" onclick="acceptFriendRequest(\'' + escapeJsString(r.id) + '\')"><span class="fr-spinner"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span>同意</button>' +
+                            '<button class="fr-btn danger" data-action="reject" onclick="rejectFriendRequest(\'' + escapeJsString(r.id) + '\')"><span class="fr-spinner"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span>拒绝</button>' +
                             '</div></div>';
                 }).join('');
             }
@@ -413,6 +413,14 @@
 
     // ==================== 好友申请：处理 ====================
     async function handleFriendRequest(id, action) {
+        // 受理中：禁用该申请的操作按钮，并在被点击按钮上显示加载动画
+        var item = el('frReq_' + id);
+        if (item) {
+            item.querySelectorAll('.fr-btn').forEach(function(b) {
+                b.disabled = true;
+                if (b.getAttribute('data-action') === action) b.classList.add('loading');
+            });
+        }
         try {
             const res = await s3.rpc('handle_friend_request', {
                 p_uid: currentUid, p_session_token: token(),
@@ -420,12 +428,20 @@
             });
             if (res && res.data && res.data.success === false) {
                 showSnackbar(res.data.message || '操作失败');
+                await loadAll();
                 return;
             }
             showSnackbar(action === 'accept' ? '已添加为好友' : '已拒绝申请');
+            // 即时刷新：本地先移除已处理的申请并重绘列表/徽标，再全量同步兜底
+            _requestsIn = _requestsIn.filter(function(r) { return r.id !== id; });
+            refreshBadge();
+            renderFriendRequests();
             await loadAll();
+            // 受理后若正与该用户私聊，同步隐藏「临时私聊」提示（已是好友）
+            if (typeof checkPrivacyBanner === 'function') checkPrivacyBanner();
         } catch (e) {
             showSnackbar('操作失败: ' + (e.message || ''));
+            await loadAll();
         }
     }
     function acceptFriendRequest(id) { handleFriendRequest(id, 'accept'); }
@@ -612,6 +628,8 @@
             var other = getPrivateOtherUser();
             item.style.display = (other && other !== currentUser && !isFriend(other)) ? '' : 'none';
         }
+        // 已是好友的私聊页永久隐藏「临时私聊」提示（受理或被添加为好友后即时生效）
+        if (typeof checkPrivacyBanner === 'function') checkPrivacyBanner();
     }
 
     // 私聊菜单：快捷发起好友申请（当前私聊对象）

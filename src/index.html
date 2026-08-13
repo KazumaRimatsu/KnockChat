@@ -115,7 +115,7 @@
     </script>
     <script>
         /* === Global Control Flag === */
-        var IS_DEV = false;
+        var IS_DEV = true;
 
         if (!IS_DEV) {
         /* === Anti-Debugging & Security Measures (v036 - Reduced False Positives) === */
@@ -242,6 +242,7 @@
     <link rel="stylesheet" href="css/ai.css">
     <!-- v097: 好友功能样式 -->
     <link rel="stylesheet" href="css/friends.css">
+    <link rel="stylesheet" href="css/golem.css">
     <link rel="stylesheet" href="css/responsive.css">
     <!-- highlight.js：代码文件预览高亮主题（dark，配合预览器黑底） -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css" integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH" crossorigin="anonymous">
@@ -258,7 +259,6 @@
         <symbol id="icon-effect" viewBox="0 0 24 24"><path d="M2.5 4v3h5v12h3V7h5V4h-13zm19 5h-9v3h3v7h3v-7h3V9z"/></symbol>
         <symbol id="icon-effect-none" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8 0-1.85.63-3.55 1.69-4.9L16.9 18.31C15.55 19.37 13.85 20 12 20zm6.31-3.1L7.1 5.69C8.45 4.63 10.15 4 12 4c4.42 0 8 3.58 8 8 0 1.85-.63 3.55-1.69 4.9z"/></symbol>
         <symbol id="icon-image" viewBox="0 0 24 24"><path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/></symbol>
-        <symbol id="icon-link" viewBox="0 0 24 24"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></symbol>
         <symbol id="icon-file" viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></symbol>
         <symbol id="icon-emoji" viewBox="0 0 24 24"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.5 5.11 3.5z"/></symbol>
         <symbol id="icon-bell" viewBox="0 0 24 24"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></symbol>
@@ -317,7 +317,7 @@
                         <li onclick="closeHomeMenu();navigateTo('settings');"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94L14.4 2.81c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41L9.25 5.35c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>设置</li>
                         <li onclick="closeHomeMenu();navigateTo('search');"><svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>搜索用户</li>
                         <li onclick="closeHomeMenu();navigateTo('about');"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>关于</li>
-                        <li class="logout-item" onclick="closeHomeMenu();logout();"><svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>退出登录</li>
+                        <li class="logout-item" onclick="closeHomeMenu();showConfirm('退出登录', '确定要退出当前账号吗？', logout);"><svg viewBox="0 0 24 24"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>退出登录</li>
                     </ul>
                 </div>
             </div>
@@ -344,48 +344,52 @@
                     <span class="reply-content" id="publicReplyContent">回复 @xxx：内容</span>
                     <button class="reply-cancel" onclick="cancelGroupReply()">✕</button>
                 </div>
-                <div class="chat-bar">
-                    <div class="input-container"><textarea class="msg-input" id="publicMsgInput" placeholder="按Enter发送，Ctrl/Shift+Enter换行" rows="1" oninput="autoResize(this);toggleGroupSendBtn();updateMentionFromInput(this)" onkeydown="handleGroupKeyDown(event)"></textarea></div>
-                    <button class="fab-send" id="publicSendBtn" onclick="sendGroupMsg()" disabled>
-                        <span class="send-spinner"></span><svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
-                    </button>
-                </div>
-                <div class="mention-menu" id="publicMentionMenu"></div><div class="feature-panel" id="publicFeaturePanel">
-                    <div id="featurePanelMain">
-                        <div class="feature-grid">
-                            <div class="feature-item" title="图片" onclick="openImagePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-image" xlink:href="#icon-image"/></svg></div></div>
-                            <div class="feature-item" title="链接" onclick="openLinkDialog('public')"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-link" xlink:href="#icon-link"/></svg></div></div>
-                            <div class="feature-item" title="文件" onclick="openFilePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-file" xlink:href="#icon-file"/></svg></div></div>
-                            <div class="feature-item" title="表情" onclick="openEmojiSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-emoji" xlink:href="#icon-emoji"/></svg></div></div>
-                            <div class="feature-item" title="语音" onclick="openVoiceSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg></div></div>
-                            <div class="feature-item" title="文字特效" onclick="openTextEffectSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-effect" xlink:href="#icon-effect"/></svg></div></div>
-                        </div>
+                <div class="chat-bar" id="publicChatBar">
+                    <div class="chat-bar-resizer" id="publicChatBarResizer" title="拖动调整输入区高度"></div>
+                    <!-- QQ 风格：顶部工具栏（功能按钮横向排列） -->
+                    <div class="chat-toolbar" id="publicFeatureInline">
+                        <div class="feature-item" title="图片" onclick="openImagePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-image" xlink:href="#icon-image"/></svg></div></div>
+                        <div class="feature-item" title="文件" onclick="openFilePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-file" xlink:href="#icon-file"/></svg></div></div>
+                        <div class="feature-item" title="表情" id="publicEmojiBtn" onclick="openEmojiSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-emoji" xlink:href="#icon-emoji"/></svg></div></div>
+                        <div class="feature-item" title="语音" onclick="toggleVoiceMode('public')"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg></div></div>
+                        <div class="feature-item" title="文字特效" onclick="openTextEffectSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-effect" xlink:href="#icon-effect"/></svg></div></div>
                     </div>
-                    <div class="sub-panel" id="emojiSubPanel">
-                        <div class="sub-panel-header"><button class="sub-panel-back" onclick="closeSubPanel()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button><span class="sub-panel-title">表情</span></div>
+                    <!-- 输入框行 -->
+                    <div class="chat-input-row" id="publicInputRow">
+                        <div class="input-container"><div class="msg-input" id="publicMsgInput" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="" oninput="autoResize(this);toggleGroupSendBtn();updateMentionFromInput(this)" onkeydown="handleGroupKeyDown(event)"></div></div>
+                        <button class="fab-send" id="publicSendBtn" onclick="sendGroupMsg()" disabled>
+                            <span class="send-spinner"></span><svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
+                        </button>
+                    </div>
+                    <!-- QQ 语音模式：按住说话（与输入框行互斥） -->
+                    <div class="voice-mode hidden" id="publicVoiceMode">
+                        <div class="voice-mode-timer" id="publicVoiceTimer">00:00</div>
+                        <button class="voice-mode-btn" id="publicVoiceBtn"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg><span>按住说话</span></button>
+                        <div class="voice-mode-tip" id="publicVoiceTip">松开发送 · 上滑取消</div>
+                    </div>
+                    <!-- 表情浮窗 / 文字特效浮层：absolute 贴在输入区上方，不遮挡输入框与发送按钮 -->
+                    <div class="emoji-popup" id="publicEmojiPopup">
+                        <div class="emoji-popup-header">
+                            <span class="sub-panel-title">自定义表情</span>
+                            <button class="sub-panel-close" onclick="closeSubPanel()" title="关闭"><svg viewBox="0 0 24 24"><use href="#icon-close" xlink:href="#icon-close"/></svg></button>
+                        </div>
                         <div class="emoji-scroll"><div class="emoji-grid" id="emojiGrid"></div></div>
                     </div>
-                    <div class="sub-panel" id="textEffectSubPanel">
-                        <div class="sub-panel-header"><button class="sub-panel-back" onclick="closeSubPanel()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button><span class="sub-panel-title">文字特效</span></div>
-                        <div class="text-effect-grid">
-                            <button class="effect-btn" onclick="applyTextEffect('b')" title="粗体"><b>B</b></button>
-                            <button class="effect-btn" onclick="applyTextEffect('i')" title="斜体"><i>I</i></button>
-                            <button class="effect-btn" onclick="applyTextEffect('u')" title="下划线"><span style="text-decoration:underline;">U</span></button>
-                            <button class="effect-btn" onclick="applyTextEffect('s')" title="删除线"><span style="text-decoration:line-through;">S</span></button>
-                            <button class="effect-btn" onclick="applyTextEffect('none')" title="无效果"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><use href="#icon-effect-none" xlink:href="#icon-effect-none"/></svg></button>
-                        </div>
-                        <div class="effect-hint">请选中输入框中的文字后点击特效按钮</div>
-                    </div>
-                    <div class="sub-panel" id="voiceSubPanel">
-                        <div class="sub-panel-header"><button class="sub-panel-back" onclick="closeSubPanel()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button><span class="sub-panel-title">语音</span></div>
-                        <div class="voice-panel">
-                            <div class="record-timer" id="recordTimer">00:00</div>
-                            <button class="record-btn" id="recordBtn" onclick="toggleRecording()"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg></button>
-                            <div class="record-hint" id="recordHint">点击开始录音</div>
-                            <button class="record-stop-btn" id="recordStopBtn" onclick="toggleRecording()">停止并发送</button>
+                    <div class="feature-panel" id="publicFeaturePanel">
+                        <div class="sub-panel" id="textEffectSubPanel">
+                            <div class="sub-panel-header"><span class="sub-panel-title">文字特效</span><button class="sub-panel-close" onclick="closeSubPanel()" title="关闭"><svg viewBox="0 0 24 24"><use href="#icon-close" xlink:href="#icon-close"/></svg></button></div>
+                            <div class="text-effect-grid">
+                                <button class="effect-btn" onclick="applyTextEffect('b')" title="粗体"><b>B</b></button>
+                                <button class="effect-btn" onclick="applyTextEffect('i')" title="斜体"><i>I</i></button>
+                                <button class="effect-btn" onclick="applyTextEffect('u')" title="下划线"><span style="text-decoration:underline;">U</span></button>
+                                <button class="effect-btn" onclick="applyTextEffect('s')" title="删除线"><span style="text-decoration:line-through;">S</span></button>
+                                <button class="effect-btn" onclick="applyTextEffect('none')" title="无效果"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><use href="#icon-effect-none" xlink:href="#icon-effect-none"/></svg></button>
+                            </div>
+                            <div class="effect-hint">请选中输入框中的文字后点击特效按钮</div>
                         </div>
                     </div>
                 </div>
+                <div class="mention-menu" id="publicMentionMenu"></div>
                 <input type="file" id="imageInput" accept="image/*" multiple style="display:none" onchange="handleImageSelect(event)">
                 <input type="file" id="fileInput" style="display:none" onchange="handleFileSelect(event)">
                 <input type="file" id="emojiUploadInput" accept="image/*" multiple style="display:none" onchange="handleEmojiUpload(event)">
@@ -394,7 +398,7 @@
             <div class="page private-page" id="privatePage">
                 <div class="app-bar">
                     <div class="title-block">
-                        <span class="title" id="privateChatTitle"></span>
+                        <span class="title" id="privateChatTitle" onclick="if(privateOtherUser)showUserProfile(privateOtherUser)" title="查看资料"></span>
                         <span class="private-friend-tag" id="privateFriendTag" style="display:none;">好友</span>
                         <span class="private-status" id="privateChatStatus"></span>
                     </div>
@@ -410,47 +414,50 @@
                     <span class="reply-content" id="privateReplyContent">回复 @xxx：内容</span>
                     <button class="reply-cancel" onclick="cancelPrivateReply()">✕</button>
                 </div>
-                <div class="chat-bar">
-                    <div class="input-container">
-                        <textarea class="msg-input" id="privateMsgInput" placeholder="发送消息..." rows="1" oninput="autoResize(this);togglePrivateSendBtn()" onkeydown="handlePrivateKeyDown(event)"></textarea>
+                <div class="chat-bar" id="privateChatBar">
+                    <div class="chat-bar-resizer" id="privateChatBarResizer" title="拖动调整输入区高度"></div>
+                    <!-- QQ 风格：顶部工具栏（功能按钮横向排列） -->
+                    <div class="chat-toolbar" id="privateFeatureInline">
+                        <div class="feature-item" title="图片" onclick="privateOpenImagePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-image" xlink:href="#icon-image"/></svg></div></div>
+                        <div class="feature-item" title="文件" onclick="privateOpenFilePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-file" xlink:href="#icon-file"/></svg></div></div>
+                        <div class="feature-item" title="表情" id="privateEmojiBtn" onclick="privateOpenEmojiSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-emoji" xlink:href="#icon-emoji"/></svg></div></div>
+                        <div class="feature-item" title="语音" onclick="toggleVoiceMode('private')"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg></div></div>
+                        <div class="feature-item" title="文字特效" onclick="privateOpenTextEffectSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-effect" xlink:href="#icon-effect"/></svg></div></div>
                     </div>
-                    <button class="fab-send" id="privateSendBtn" onclick="sendPrivateMsg()" disabled>
-                        <span class="send-spinner"></span><svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
-                    </button>
-                </div>
-                <div class="feature-panel" id="privateFeaturePanel">
-                    <div id="privateFeaturePanelMain">
-                        <div class="feature-grid">
-                            <div class="feature-item" title="图片" onclick="privateOpenImagePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-image" xlink:href="#icon-image"/></svg></div></div>
-                            <div class="feature-item" title="链接" onclick="openLinkDialog('private')"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-link" xlink:href="#icon-link"/></svg></div></div>
-                            <div class="feature-item" title="文件" onclick="privateOpenFilePicker()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-file" xlink:href="#icon-file"/></svg></div></div>
-                            <div class="feature-item" title="表情" onclick="privateOpenEmojiSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-emoji" xlink:href="#icon-emoji"/></svg></div></div>
-                            <div class="feature-item" title="语音" onclick="privateOpenVoiceSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg></div></div>
-                            <div class="feature-item" title="文字特效" onclick="privateOpenTextEffectSubPanel()"><div class="feature-icon"><svg viewBox="0 0 24 24"><use href="#icon-effect" xlink:href="#icon-effect"/></svg></div></div>
+                    <!-- 输入框行 -->
+                    <div class="chat-input-row" id="privateInputRow">
+                        <div class="input-container">
+                            <div class="msg-input" id="privateMsgInput" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="" oninput="autoResize(this);togglePrivateSendBtn()" onkeydown="handlePrivateKeyDown(event)"></div>
                         </div>
+                        <button class="fab-send" id="privateSendBtn" onclick="sendPrivateMsg()" disabled>
+                            <span class="send-spinner"></span><svg viewBox="0 0 24 24"><use href="#icon-send" xlink:href="#icon-send"/></svg>
+                        </button>
                     </div>
-                    <div class="sub-panel" id="privateEmojiSubPanel">
-                        <div class="sub-panel-header"><button class="sub-panel-back" onclick="privateCloseSubPanel()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button><span class="sub-panel-title">表情</span></div>
+                    <!-- QQ 语音模式：按住说话（与输入框行互斥） -->
+                    <div class="voice-mode hidden" id="privateVoiceMode">
+                        <div class="voice-mode-timer" id="privateVoiceTimer">00:00</div>
+                        <button class="voice-mode-btn" id="privateVoiceBtn"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg><span>按住说话</span></button>
+                        <div class="voice-mode-tip" id="privateVoiceTip">松开发送 · 上滑取消</div>
+                    </div>
+                    <!-- 表情浮窗 / 文字特效浮层：absolute 贴在输入区上方，不遮挡输入框与发送按钮 -->
+                    <div class="emoji-popup" id="privateEmojiPopup">
+                        <div class="emoji-popup-header">
+                            <span class="sub-panel-title">表情</span>
+                            <button class="sub-panel-close" onclick="privateCloseSubPanel()" title="关闭"><svg viewBox="0 0 24 24"><use href="#icon-close" xlink:href="#icon-close"/></svg></button>
+                        </div>
                         <div class="emoji-scroll"><div class="emoji-grid" id="privateEmojiGrid"></div></div>
                     </div>
-                    <div class="sub-panel" id="privateTextEffectSubPanel">
-                        <div class="sub-panel-header"><button class="sub-panel-back" onclick="privateCloseSubPanel()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button><span class="sub-panel-title">文字特效</span></div>
-                        <div class="text-effect-grid">
-                            <button class="effect-btn" onclick="privateApplyTextEffect('b')" title="粗体"><b>B</b></button>
-                            <button class="effect-btn" onclick="privateApplyTextEffect('i')" title="斜体"><i>I</i></button>
-                            <button class="effect-btn" onclick="privateApplyTextEffect('u')" title="下划线"><span style="text-decoration:underline;">U</span></button>
-                            <button class="effect-btn" onclick="privateApplyTextEffect('s')" title="删除线"><span style="text-decoration:line-through;">S</span></button>
-                            <button class="effect-btn" onclick="privateApplyTextEffect('none')" title="无效果"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><use href="#icon-effect-none" xlink:href="#icon-effect-none"/></svg></button>
-                        </div>
-                        <div class="effect-hint">请选中输入框中的文字后点击特效按钮</div>
-                    </div>
-                    <div class="sub-panel" id="privateVoiceSubPanel">
-                        <div class="sub-panel-header"><button class="sub-panel-back" onclick="privateCloseSubPanel()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button><span class="sub-panel-title">语音</span></div>
-                        <div class="voice-panel">
-                            <div class="record-timer" id="privateRecordTimer">00:00</div>
-                            <button class="record-btn" id="privateRecordBtn" onclick="privateToggleRecording()"><svg viewBox="0 0 24 24"><use href="#icon-mic" xlink:href="#icon-mic"/></svg></button>
-                            <div class="record-hint" id="privateRecordHint">点击开始录音</div>
-                            <button class="record-stop-btn" id="privateRecordStopBtn" onclick="privateToggleRecording()">停止并发送</button>
+                    <div class="feature-panel" id="privateFeaturePanel">
+                        <div class="sub-panel" id="privateTextEffectSubPanel">
+                            <div class="sub-panel-header"><span class="sub-panel-title">文字特效</span><button class="sub-panel-close" onclick="privateCloseSubPanel()" title="关闭"><svg viewBox="0 0 24 24"><use href="#icon-close" xlink:href="#icon-close"/></svg></button></div>
+                            <div class="text-effect-grid">
+                                <button class="effect-btn" onclick="privateApplyTextEffect('b')" title="粗体"><b>B</b></button>
+                                <button class="effect-btn" onclick="privateApplyTextEffect('i')" title="斜体"><i>I</i></button>
+                                <button class="effect-btn" onclick="privateApplyTextEffect('u')" title="下划线"><span style="text-decoration:underline;">U</span></button>
+                                <button class="effect-btn" onclick="privateApplyTextEffect('s')" title="删除线"><span style="text-decoration:line-through;">S</span></button>
+                                <button class="effect-btn" onclick="privateApplyTextEffect('none')" title="无效果"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><use href="#icon-effect-none" xlink:href="#icon-effect-none"/></svg></button>
+                            </div>
+                            <div class="effect-hint">选中输入框中的文字，点击效果对应的按钮</div>
                         </div>
                     </div>
                 </div>
@@ -472,7 +479,7 @@
                     </div>
                 </div>
                 <div class="friends-requests-entry" id="friendReqEntry" onclick="openAddFriendPage()" style="display:none;">
-                    <span class="freq-text">收到 0 条好友申请</span>
+                    <span class="freq-text">暂无好友申请</span>
                 </div>
                 <div class="friends-scroll" id="friendsContainer"></div>
             </div>
@@ -487,10 +494,10 @@
                 </div>
                 <div class="add-friend-scroll">
                     <div class="friend-search-box">
-                        <input type="text" id="friendSearchInput" placeholder="输入昵称搜索用户..." onkeydown="if(event.key==='Enter')doFriendSearch()">
+                        <input type="text" id="friendSearchInput" placeholder="输入昵称以搜索用户" onkeydown="if(event.key==='Enter')doFriendSearch()">
                         <button class="fr-btn primary" onclick="doFriendSearch()">搜索</button>
                     </div>
-                    <div id="friendSearchResults"><div class="empty">输入昵称搜索用户，直接发起好友申请</div></div>
+                    <div id="friendSearchResults"><div class="empty">输入昵称搜索用户</div></div>
                     <div class="req-section">
                         <div class="req-section-title">收到的申请</div>
                         <div id="friendReqIn"></div>
@@ -505,16 +512,18 @@
             <div class="page search-page" id="searchPage">
                 <div class="app-bar">
                     <div class="title-block">
+                        <button class="back-btn" onclick="navigateBack()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button>
                         <span class="title">搜索用户</span>
                     </div>
                 </div>
-                <div class="search-box"><input type="text" id="searchInput" placeholder="输入昵称搜索..." oninput="doSearch(this.value)" onkeydown="if(event.key==='Enter')doSearch(this.value)"></div>
+                <div class="search-box"><input type="text" id="searchInput" placeholder="输入昵称搜索用户" oninput="doSearch(this.value)" onkeydown="if(event.key==='Enter')doSearch(this.value)"></div>
                 <div class="search-results" id="searchResults"><div class="empty">输入昵称开始搜索</div></div>
             </div>
 
             <div class="page settings-page" id="settingsPage">
                 <div class="app-bar">
                     <div class="title-block">
+                        <button class="back-btn" onclick="navigateBack()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button>
                         <span class="title">设置</span>
                     </div>
                 </div>
@@ -597,6 +606,37 @@
                             <svg class="settings-chevron" viewBox="0 0 24 24"><use href="#icon-chevron" xlink:href="#icon-chevron"/></svg>
                         </div>
                     </div>
+                    <!-- v103: 更多 —— Golem 机器人账号管理入口 -->
+                    <div class="settings-section">
+                        <div class="settings-section-title">更多</div>
+                        <div class="settings-item" onclick="navigateTo('golem')">
+                            <div class="settings-item-icon"><svg viewBox="0 0 24 24"><path d="M12 2c1.1 0 2 .9 2 2v1.07A8.001 8.001 0 0 1 20 13v1.5c0 1.5.3 3.3 1.5 4.5H14v-2h-4v2H2.5C3.7 17.8 4 16 4 14.5V13a8.001 8.001 0 0 1 6-7.93V4c0-1.1.9-2 2-2zm-7 14v1a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1c-2.5 0-3.5 1-5 1s-2.5-1-5-1-2.5-1-4-1zm7-9c-3.3 0-6 2.7-6 6h12c0-3.3-2.7-6-6-6zm0 3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5-1.5-.67-1.5-1.5.67-1.5 1.5-1.5z"/></svg></div>
+                            <span class="settings-item-label">Golem</span>
+                            <span class="settings-item-value" id="settingsGolemCount"></span>
+                            <svg class="settings-chevron" viewBox="0 0 24 24"><use href="#icon-chevron" xlink:href="#icon-chevron"/></svg>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- v103: Golem 机器人账号管理页 -->
+            <div class="page golem-page" id="golemPage">
+                <div class="app-bar">
+                    <div class="title-block">
+                        <button class="back-btn" onclick="navigateBack()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button>
+                        <span class="title">Golem 机器人</span>
+                    </div>
+                </div>
+                <!-- 状态筛选栏 -->
+                <div class="golem-filter" id="golemFilterBar">
+                    <button class="golem-chip selected" data-status="all" onclick="filterGolemBots('all', this)">全部</button>
+                    <button class="golem-chip" data-status="normal" onclick="filterGolemBots('normal', this)">正常</button>
+                    <button class="golem-chip" data-status="disabled" onclick="filterGolemBots('disabled', this)">停用</button>
+                    <button class="golem-chip" data-status="expiring" onclick="filterGolemBots('expiring', this)">密钥待轮换</button>
+                </div>
+                <div class="golem-scroll" id="golemList"><div class="empty">加载中...</div></div>
+                <div class="golem-fab" onclick="showGolemForm()" title="申请机器人账号">
+                    <svg viewBox="0 0 24 24"><use href="#icon-plus" xlink:href="#icon-plus"/></svg>
                 </div>
             </div>
 
@@ -606,7 +646,13 @@
                         <button class="back-btn" onclick="navigateBack()"><svg viewBox="0 0 24 24"><use href="#icon-back" xlink:href="#icon-back"/></svg></button>
                         <span class="title">群文件</span>
                     </div>
+                    <div class="gf-toolbar">
+                        <label class="gf-tool-btn" for="groupFilesUploadInput">上传</label>
+                        <input type="file" id="groupFilesUploadInput" style="display:none" onchange="handleGroupFilesUpload(event)">
+                        <button class="gf-tool-btn" id="gfNewFolderBtn" onclick="createGroupFolder()">+ 新建文件夹</button>
+                    </div>
                 </div>
+                <div class="gf-crumb" id="groupFilesCrumb"></div>
                 <div class="group-files-body" id="groupFilesContainer">
                     <div class="gf-empty">加载中...</div>
                 </div>
@@ -626,7 +672,7 @@
                     <div class="about-name">KnockChat 敲敲</div>
                     <div class="about-mjchat-version" id="aboutMjchatVersion">内核版本 v100</div>
                     <div class="about-github">Github:<a href="https://github.com/KazumaRimatsu/CikaChat" target="_blank" rel="noopener noreferrer">KazumaRimatsu/CikaChat</a></div>
-                    <div class="about-opensource">基于<a href="https://github.com/ManJuanAll/MJChat" target="_blank" rel="noopener noreferrer"> MJChat </a>及其他<a role="button" tabindex="0" onclick="showOpensourceDialog()"> 开源项目 </a></div>
+                    <div class="about-opensource">基于<a href="https://github.com/ManJuanAll/MJChat" target="_blank" rel="noopener noreferrer"> MJChat </a>及其他<a role="button" tabindex="0" onclick="showOpensourceDialog()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showOpensourceDialog();}"> 开源项目 </a></div>
                     <!-- v089: 更新拉取——从存储桶 upd/latest.json 检查并下载新版本安装包 -->
                     <div class="about-update">
                         <button class="md-button primary" onclick="checkUpdate()">检查更新</button>
@@ -738,7 +784,6 @@
 
             <div class="chat-placeholder" id="chatPlaceholder">
                 <svg viewBox="0 0 24 24"><use href="#icon-chat" xlink:href="#icon-chat"/></svg>
-                <span>选择一个聊天开始</span>
             </div>
             </div>
             </div>
@@ -757,7 +802,7 @@
                     <div class="quick-login-avatar av-0" id="quickLoginAvatar">U</div>
                     <div class="quick-login-user" id="quickLoginUser"></div>
                     <button class="wc-btn" style="margin-top:12px;" onclick="quickLogin()">登录</button>
-                    <div style="margin-top:16px;font-size:0.8rem;opacity:0.6;"><a onclick="switchToNormalLogin()">切换账号</a></div>
+                    <div style="margin-top:16px;font-size:0.8rem;opacity:0.6;"><a role="button" tabindex="0" style="cursor:pointer;" onclick="switchToNormalLogin()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToNormalLogin();}">切换账号</a></div>
                 </div>
                 <div class="auth-form" id="loginNormalForm">
                     <div class="auth-error" id="loginError"></div>
@@ -765,7 +810,7 @@
                     <div class="wc-input"><input type="password" id="loginPassword" placeholder="密码" onkeypress="if(event.key==='Enter')doLogin()"></div>
                     <button class="wc-btn" onclick="doLogin()">登录</button>
                 </div>
-                <div class="auth-switch"><a onclick="showRegister()">注册账号</a></div>
+                <div class="auth-switch"><a role="button" tabindex="0" onclick="showRegister()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showRegister();}">注册账号</a></div>
             </div>
             <div class="auth-screen hidden" id="registerScreen">
                 <div class="auth-header">
@@ -777,12 +822,15 @@
                 <div class="auth-form">
                     <div class="auth-error" id="regError"></div>
                     <div class="auth-success" id="regSuccess"></div>
-                    <div class="wc-input"><input type="text" id="regUsername" placeholder="昵称（≤15字符）" maxlength="15"></div>
-                    <div class="wc-input"><input type="password" id="regPassword" placeholder="密码"></div>
-                    <div class="wc-input"><input type="password" id="regPassword2" placeholder="确认密码"></div>
-                    <button class="wc-btn" onclick="doRegister()">注册</button>
+                    <div class="wc-input"><input type="text" id="regUsername" placeholder="昵称（≤15字符）" maxlength="15" onkeypress="if(event.key==='Enter')doRegister()"></div>
+                    <div class="wc-input"><input type="password" id="regPassword" placeholder="密码" onkeypress="if(event.key==='Enter')doRegister()"></div>
+                    <div class="wc-input"><input type="password" id="regPassword2" placeholder="确认密码" onkeypress="if(event.key==='Enter')doRegister()"></div>
+                    <button class="wc-btn" id="regBtn" onclick="doRegister()">
+                        <span class="wc-btn-spin hidden" id="regBtnLoader"><span class="md-circular-loader"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span></span>
+                        <span id="regBtnText">注册</span>
+                    </button>
                 </div>
-                <div class="auth-switch">已有账号？<a onclick="showLogin()">登录</a></div>
+                <div class="auth-switch">已有账号？<a role="button" tabindex="0" onclick="showLogin()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();showLogin();}">登录</a></div>
             </div>
         </div>
 
@@ -825,10 +873,10 @@
                     <div class="item"><span class="label">UID</span><span class="value" id="userProfileUid">-</span></div>
                     <div class="item"><span class="label">用户状态</span><span class="value" id="userProfileStatus">-</span></div>
                 </div>
-                <button class="md-button primary" id="userProfileViewBtn" onclick="openUserDetailFromProfile()" style="width:100%;padding:14px 16px;border:none;border-radius:0;font-weight:400;cursor:pointer;background:transparent;color:var(--md-primary);font-size:0.9375rem;text-align:left;border-bottom:1px solid var(--md-outline);">查看资料</button>
-                <button class="md-button primary" id="userProfileChatBtn" onclick="startPrivateChatFromProfile()" style="width:100%;padding:14px 16px;border:none;border-radius:0;font-weight:400;cursor:pointer;background:transparent;color:var(--md-primary);font-size:0.9375rem;margin-top:8px;text-align:left;border-bottom:1px solid var(--md-outline);">发起私聊</button>
+                <button class="md-button primary" id="userProfileViewBtn" onclick="openUserDetailFromProfile()" style="width:100%;height:auto;min-height:48px;padding:14px 16px;border:none;border-radius:0;font-weight:400;cursor:pointer;background:transparent;color:var(--md-primary);font-size:0.9375rem;text-align:left;border-bottom:1px solid var(--md-outline);">查看资料</button>
+                <button class="md-button primary" id="userProfileChatBtn" onclick="startPrivateChatFromProfile()" style="width:100%;height:auto;min-height:48px;padding:14px 16px;border:none;border-radius:0;font-weight:400;cursor:pointer;background:transparent;color:var(--md-primary);font-size:0.9375rem;margin-top:8px;text-align:left;border-bottom:1px solid var(--md-outline);">发起私聊</button>
                 <!-- v097: 公开名片快捷发起好友申请 -->
-                <button class="md-button primary" id="userProfileAddFriendBtn" onclick="addFriendFromProfile()" style="width:100%;padding:14px 16px;border:none;border-radius:0;font-weight:400;cursor:pointer;background:transparent;color:var(--md-primary);font-size:0.9375rem;margin-top:8px;text-align:left;">添加好友</button>
+                <button class="md-button primary" id="userProfileAddFriendBtn" onclick="addFriendFromProfile()" style="width:100%;height:auto;min-height:48px;padding:14px 16px;border:none;border-radius:0;font-weight:400;cursor:pointer;background:transparent;color:var(--md-primary);font-size:0.9375rem;margin-top:8px;text-align:left;">添加好友</button>
             </div>
         </div>
 
@@ -854,6 +902,7 @@
             <div class="user-menu-card" onclick="event.stopPropagation()">
                 <div class="user-info"><div class="avatar-wrap"><div class="user-avatar" id="privateMenuAvatar">U</div><div class="avatar-status-dot" id="privateAvatarDot"></div></div><div class="user-name" id="privateMenuName">用户</div></div>
                 <ul class="menu-list">
+                    <li onclick="closePrivateMenu();if(privateOtherUser)showUserProfile(privateOtherUser);"><svg viewBox="0 0 24 24"><use href="#icon-user" xlink:href="#icon-user"/></svg>查看资料</li>
                     <li id="privateMenuNotifyItem" style="display:none;" onclick="togglePrivateNotify();"><svg viewBox="0 0 24 24"><use href="#icon-bell" xlink:href="#icon-bell"/></svg><span id="privateNotifyLabel">开启消息提示音</span></li>
                     <!-- v053: 私聊按会话免打扰 -->
                     <li id="privateMenuMuteItem" onclick="closePrivateMenu();togglePrivateMute();"><svg viewBox="0 0 24 24"><use href="#icon-dnd" xlink:href="#icon-dnd"/></svg><span id="privateMuteLabel">消息免打扰</span></li>
@@ -874,6 +923,13 @@
                 <div class="agent-list" id="agentListContainer">
                 </div>
                 <div class="add-agent-btn" onclick="closeAgentList();showAddAgentDialog();">+ 添加智能体</div>
+            </div>
+        </div>
+
+        <div class="dialog-overlay hidden" id="gfMoveDialog" onclick="if(event.target===this)closeGroupFolderPicker()">
+            <div class="md-dialog">
+                <div class="dialog-header"><h2>移动到文件夹</h2><button onclick="closeGroupFolderPicker()" class="theme-dialog-close">✕</button></div>
+                <div class="gf-picker-list" id="gfPickerContainer"></div>
             </div>
         </div>
 
@@ -898,17 +954,6 @@
                     <div class="md-text-field"><input type="text" id="agentModel" placeholder=" " value="gpt-3.5-turbo"><label>模型</label></div>
                 </div>
                 <div class="dialog-actions"><button class="md-button text" onclick="closeAddAgentDialog()">取消</button><button class="md-button text" onclick="saveAgent()">保存</button></div>
-            </div>
-        </div>
-
-        <div class="dialog-overlay hidden" id="linkDialog" onclick="if(event.target===this)hideLinkDialog()">
-            <div class="md-dialog">
-                <h2>发送链接</h2>
-                <div style="display:flex;flex-direction:column;gap:12px;margin:16px 0;">
-                    <div class="md-text-field"><input type="text" id="linkText" placeholder=" "><label>链接文字</label></div>
-                    <div class="md-text-field"><input type="text" id="linkUrl" placeholder=" " onkeypress="if(event.key==='Enter')sendLink()"><label>链接地址</label></div>
-                </div>
-                <div class="dialog-actions"><button class="md-button text" onclick="hideLinkDialog()">取消</button><button class="md-button text" onclick="sendLink()">发送</button></div>
             </div>
         </div>
 
@@ -982,6 +1027,86 @@
                 <h2 id="confirmTitle">确认</h2>
                 <p id="confirmMessage">确定执行此操作？</p>
                 <div class="dialog-actions"><button class="md-button text" onclick="closeConfirmDialog()">取消</button><button class="md-button text" id="confirmOkBtn" style="color:var(--md-error);" onclick="closeConfirmDialog()">确定</button></div>
+            </div>
+        </div>
+
+        <!-- v103: Golem —— 机器人账号新增/编辑弹窗 -->
+        <div class="dialog-overlay hidden golem-modal" id="golemBotDialog" onclick="if(event.target===this)closeGolemForm()">
+            <div class="md-dialog">
+                <div class="dialog-header">
+                    <h2 id="golemFormTitle">申请机器人账号</h2>
+                    <button onclick="closeGolemForm()" class="theme-dialog-close">✕</button>
+                </div>
+                <div class="golem-form" id="golemFormBody">
+                    <div class="md-text-field"><input type="text" id="golemName" maxlength="15" placeholder=" "><label>机器人昵称</label></div>
+                    <div class="md-text-field" id="golemPasswordWrap"><input type="password" id="golemPassword" placeholder=" "><label>机器人密码</label></div>
+                    <div class="golem-hint" id="golemPasswordHint">用于归属账号验证机器人关键设置，登录时将由密码生成登录密钥</div>
+                    <div class="md-text-field"><input type="text" id="golemAvatarUrl" placeholder=" "><label>头像 URL（可选）</label></div>
+                    <div class="md-text-field"><input type="text" id="golemBio" placeholder=" "><label>简介（可选）</label></div>
+                    <!-- 编辑模式：关键设置区（需验证机器人密码） -->
+                    <div class="golem-section hidden" id="golemKeySection">
+                        <div class="golem-section-title">密码与登录密钥</div>
+                        <div class="md-text-field"><input type="password" id="golemNewPassword" placeholder=" "><label>新密码（留空则不修改）</label></div>
+                        <div class="golem-key-row">
+                            <div class="golem-key-box"><span class="golem-key-label">登录密钥</span><code id="golemKeyDisplay" class="golem-key-text">仅创建/轮换时展示一次</code></div>
+                        </div>
+                        <div class="golem-hint" id="golemKeyExpire">密钥有效期为 90 天，到期后需轮换</div>
+                        <div class="golem-key-actions">
+                            <button class="gm-btn" onclick="rotateGolemKeyFlow()">轮换密钥</button>
+                        </div>
+                    </div>
+                    <!-- 编辑模式：状态 -->
+                    <div class="golem-section hidden" id="golemStatusSection">
+                        <div class="golem-section-title">账号状态</div>
+                        <div class="golem-status-row">
+                            <span>启用该机器人</span>
+                            <label class="blockword-switch"><input type="checkbox" id="golemDisabled"><span class="blockword-switch-track"></span></label>
+                        </div>
+                    </div>
+                    <!-- 编辑模式：进入的群聊 -->
+                    <div class="golem-section hidden" id="golemGroupsSection">
+                        <div class="golem-section-title">进入的群聊</div>
+                        <div class="golem-groups" id="golemGroupsList"></div>
+                    </div>
+                    <div class="golem-error" id="golemFormError"></div>
+                </div>
+                <div class="dialog-actions">
+                    <button class="md-button text" onclick="closeGolemForm()">取消</button>
+                    <button class="md-button text" onclick="saveGolemBot()">保存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- v103: Golem —— 机器人密码验证弹窗（删除/轮换密钥） -->
+        <div class="dialog-overlay hidden" id="golemPasswordDialog" onclick="if(event.target===this)closeGolemPasswordDialog()">
+            <div class="md-dialog">
+                <div class="dialog-header">
+                    <h2 id="golemPasswordTitle">验证机器人密码</h2>
+                    <button onclick="closeGolemPasswordDialog()" class="theme-dialog-close">✕</button>
+                </div>
+                <p id="golemPasswordHintText">此操作需要验证机器人账号的密码。</p>
+                <div class="md-text-field"><input type="password" id="golemPasswordInput" placeholder=" " onkeydown="if(event.key==='Enter')confirmGolemPasswordAction()"><label>机器人密码</label></div>
+                <div class="golem-error" id="golemPasswordError"></div>
+                <div class="dialog-actions">
+                    <button class="md-button text" onclick="closeGolemPasswordDialog()">取消</button>
+                    <button class="md-button text" id="golemPasswordOkBtn" onclick="confirmGolemPasswordAction()">确认</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- v103: Golem —— 登录密钥展示弹窗（创建/轮换后仅展示一次） -->
+        <div class="dialog-overlay hidden" id="golemKeyDialog" onclick="if(event.target===this)closeGolemKeyDialog()">
+            <div class="md-dialog">
+                <div class="dialog-header">
+                    <h2>登录密钥</h2>
+                    <button onclick="closeGolemKeyDialog()" class="theme-dialog-close">✕</button>
+                </div>
+                <p>该密钥是机器人连接服务器的唯一凭证（128 位，永久有效直至轮换）。请立即妥善保存，关闭后不再显示；密钥一经轮换，旧密钥立即失效。</p>
+                <div class="golem-key-result">
+                    <code id="golemKeyResultText">-</code>
+                    <button class="gm-btn" onclick="copyGolemKey()">复制</button>
+                </div>
+                <div class="dialog-actions"><button class="md-button text" onclick="closeGolemKeyDialog()">我已保存</button></div>
             </div>
         </div>
 
@@ -1299,5 +1424,7 @@
     <script src="js/friends.js"></script>
     <!-- v099: 群聊功能模块（依赖 chat.js / other.js / friends.js 已先行加载） -->
     <script src="js/group.js"></script>
+    <!-- v103: Golem 机器人账号管理模块（依赖 api.js / other.js 已先行加载） -->
+    <script src="js/golem.js"></script>
 </body>
 </html>

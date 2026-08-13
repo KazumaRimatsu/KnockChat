@@ -15,18 +15,19 @@
 
 .settings-page .settings-section-title {
     padding: 0 16px 8px;
-    font-size: 0.75rem;
+    font-size: var(--md-font-size-sm);
     font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
     letter-spacing: 0.5px;
     text-transform: uppercase;
     color: var(--md-settings-text-dim);
 }
 
-/* 设置项：三态背景（未选中/悬停/选中）由令牌控制 */
+/* 设置项：MD3 列表项（单行 56dp、图标容器 40dp、标题 16sp），三态背景由令牌控制 */
 .settings-page .settings-item {
     display: flex;
     align-items: center;
-    padding: 14px 16px;
+    min-height: 56px;
+    padding: 8px 16px;
     background: var(--md-settings-bg);
     border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-settings-border);
     cursor: pointer;
@@ -45,27 +46,32 @@
     background: var(--md-settings-active);
 }
 
+.settings-page .settings-item:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: -2px;
+}
+
 .settings-page .settings-item .settings-item-icon {
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     margin-right: 12px;
     border-radius: var(--radius-full);
     background: var(--md-settings-icon-bg);
 }
 
 .settings-page .settings-item .settings-item-icon svg {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     fill: var(--md-settings-text-muted);
 }
 
 .settings-page .settings-item .settings-item-label {
     flex: 1;
-    font-size: 0.9375rem;
+    font-size: var(--md-font-size-lg);
     color: var(--md-settings-text);
 }
 
@@ -96,26 +102,32 @@
     color: var(--md-error);
 }
 
-/* 退出登录按钮 */
+/* 退出登录按钮（MD3 filled 按钮：高 40dp、药丸圆角、状态层） */
 .settings-page .settings-logout-btn {
     margin: 0 16px;
-    padding: 14px 16px;
-    border-radius: var(--radius-md);
+    min-height: 40px;
+    padding: 10px 16px;
+    border-radius: var(--radius-full);
     background: var(--md-error);
     text-align: center;
-    font-size: 0.9375rem;
+    font-size: var(--md-font-size-base);
     font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
     color: var(--md-on-error);
     cursor: pointer;
-    transition: filter 0.2s;
+    transition: box-shadow 0.2s;
 }
 
 .settings-page .settings-logout-btn:hover {
-    filter: brightness(1.1);
+    box-shadow: inset 0 0 0 999px var(--md-btn-state-hover);
 }
 
 .settings-page .settings-logout-btn:active {
-    filter: brightness(0.9);
+    box-shadow: inset 0 0 0 999px var(--md-btn-state-active);
+}
+
+.settings-page .settings-logout-btn:focus-visible {
+    outline: 2px solid var(--md-error);
+    outline-offset: 2px;
 }
 
 /* --- 群文件页 --- */
@@ -166,7 +178,7 @@
 }
 
 .gf-file-name {
-    font-size: 0.9rem;
+    font-size: var(--md-font-size-base);
     color: var(--md-on-surface);
     white-space: nowrap;
     overflow: hidden;
@@ -175,14 +187,14 @@
 
 .gf-file-meta {
     margin-top: 2px;
-    font-size: 0.75rem;
+    font-size: var(--md-font-size-sm);
     color: var(--md-on-surface-variant);
 }
 
 .gf-empty {
     padding: 60px 20px;
     text-align: center;
-    font-size: 0.85rem;
+    font-size: var(--md-font-size-base);
     color: var(--md-on-surface-variant);
 }
 
@@ -198,7 +210,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.8125rem;
+    font-size: var(--md-font-size-base);
     color: var(--md-on-surface-variant);
 }
 
@@ -229,13 +241,109 @@
     border: none;
     border-radius: var(--radius-sm);
     background: var(--md-error-container);
-    font-size: 0.75rem;
+    font-size: var(--md-font-size-sm);
     color: var(--md-on-error-container);
     cursor: pointer;
 }
 
 .gf-file-del:hover {
     opacity: 0.85;
+}
+
+/* v104: 群文件夹——工具栏、面包屑、文件夹条目、移动文件选择器 */
+.gf-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-right: 8px;
+}
+
+.gf-tool-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: var(--radius-full);
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+    font-size: var(--md-font-size-base);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.gf-tool-btn:hover {
+    opacity: 0.85;
+}
+
+.gf-crumb {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 16px 0;
+    font-size: var(--md-font-size-base);
+    color: var(--md-on-surface-variant);
+    white-space: nowrap;
+    overflow-x: auto;
+}
+
+.gf-crumb-link {
+    padding: 2px 6px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: none;
+    font-size: var(--md-font-size-base);
+    color: var(--md-primary);
+    cursor: pointer;
+}
+
+.gf-crumb-link:hover {
+    background: var(--md-surface-variant);
+}
+
+.gf-crumb-sep {
+    color: var(--md-on-surface-variant);
+}
+
+.gf-crumb-current {
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-on-surface);
+}
+
+.gf-folder-item .gf-file-icon {
+    background: var(--md-secondary-container);
+    color: var(--md-on-secondary-container);
+}
+
+.gf-del-danger {
+    background: var(--md-error-container);
+    color: var(--md-on-error-container);
+}
+
+.gf-move-btn {
+    background: var(--md-surface-variant);
+    color: var(--md-on-surface-variant);
+}
+
+.gf-picker-list {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.gf-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.gf-picker-item:hover {
+    background: var(--md-surface-variant);
+}
+
+.gf-picker-item .gf-file-icon {
+    background: var(--md-secondary-container);
+    color: var(--md-on-secondary-container);
 }
 
 /* --- 关于页 --- */
@@ -251,19 +359,19 @@
 }
 
 .about-page .about-name {
-    font-size: 1.5rem;
-    font-weight: 600;
+    font-size: var(--md-font-size-xxl);
+    font-weight: var(--md-font-weight-bold);
     color: var(--md-on-surface);
 }
 
 .about-page .about-version {
-    font-size: 0.9375rem;
+    font-size: var(--md-font-size-md);
     color: var(--md-on-surface-variant);
 }
 
 .about-page .about-desc {
     margin-top: 4px;
-    font-size: 0.875rem;
+    font-size: var(--md-font-size-base);
     color: var(--md-on-surface-variant);
 }
 
@@ -287,12 +395,12 @@
 
 .about-page .about-update-info {
     max-width: min(92vw, 420px);
-    font-size: 0.8125rem;
+    font-size: var(--md-font-size-base);
     line-height: 1.7;
     color: var(--md-on-surface-variant);
     text-align: left;
     border: 1px solid var(--md-outline);
-    border-radius: 8px;
+    border-radius: var(--radius-sm);
     padding: 10px 12px;
     display: none;
     white-space: pre-wrap;
@@ -305,7 +413,7 @@
 
 .about-page .about-copyright {
     margin-top: 24px;
-    font-size: 0.75rem;
+    font-size: var(--md-font-size-sm);
     opacity: 0.6;
     color: var(--md-on-surface-variant);
 }
