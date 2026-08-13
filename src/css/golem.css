@@ -1,0 +1,340 @@
+/* ==========================================================================
+   golem.css —— Golem 机器人账号管理页与弹窗（v103）
+   适配现有 MD3 设计令牌（--md-*）与既有 .gm-btn / .md-text-field 组件。
+   ========================================================================== */
+
+/* --- 机器人管理页 --- */
+.golem-page .golem-filter {
+    display: flex;
+    gap: 6px;
+    padding: 10px 14px;
+    overflow-x: auto;
+    flex-shrink: 0;
+    border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-settings-border);
+    -webkit-overflow-scrolling: touch;
+}
+
+.golem-chip {
+    flex-shrink: 0;
+    padding: 6px 16px;
+    min-height: 32px;
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--radius-full);
+    background: var(--md-surface-container-lowest);
+    color: var(--md-on-surface);
+    font-size: var(--md-font-size-sm);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    font-family: inherit;
+    line-height: 1.2;
+}
+
+.golem-chip:hover {
+    background: var(--md-surface-container);
+    border-color: var(--md-outline);
+}
+
+.golem-chip:active {
+    background: var(--md-surface-container-high);
+}
+
+.golem-chip.selected {
+    background: var(--md-primary-container);
+    border-color: var(--md-primary);
+    color: var(--md-on-primary-container);
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+}
+
+.golem-page .golem-scroll {
+    flex: 1;
+    padding: 6px 14px 88px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.golem-page .golem-scroll .empty {
+    padding: 60px 20px;
+    text-align: center;
+    font-size: var(--md-font-size-base);
+    color: var(--md-on-surface-variant);
+}
+
+/* --- 机器人列表项 --- */
+.golem-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 4px;
+    border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-settings-border);
+}
+
+.golem-item:last-of-type {
+    border-bottom: none;
+}
+
+.golem-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+    font-size: var(--md-font-size-xl);
+    font-weight: var(--md-font-weight-bold);
+    background-size: cover;
+    background-position: center;
+}
+
+.golem-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.golem-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--md-font-size-md);
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-on-surface);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.golem-badge {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: var(--radius-sm);
+    font-size: var(--md-font-size-xs);
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+}
+
+.golem-badge.normal {
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+}
+
+.golem-badge.disabled {
+    background: var(--md-surface-container-high);
+    color: var(--md-on-surface-variant);
+}
+
+.golem-badge.stopped {
+    background: var(--md-error-container);
+    color: var(--md-on-error-container);
+}
+
+.golem-bio {
+    margin-top: 2px;
+    font-size: var(--md-font-size-sm);
+    color: var(--md-on-surface-variant);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.golem-meta {
+    margin-top: 2px;
+    font-size: var(--md-font-size-sm);
+    color: var(--md-on-surface-variant);
+}
+
+.golem-key-warn {
+    color: var(--md-error);
+}
+
+.golem-actions {
+    display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+    max-width: 45%;
+}
+
+/* --- 悬浮申请按钮（FAB） --- */
+.golem-page .golem-fab {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius-lg);
+    background: var(--md-primary);
+    color: var(--md-on-primary);
+    box-shadow: var(--md-elevation-3);
+    cursor: pointer;
+    z-index: 5;
+    transition: box-shadow 0.15s, filter 0.15s;
+}
+
+.golem-page .golem-fab:hover {
+    filter: brightness(0.96);
+}
+
+.golem-page .golem-fab:active {
+    filter: brightness(0.92);
+}
+
+.golem-page .golem-fab svg {
+    width: 28px;
+    height: 28px;
+    fill: currentColor;
+}
+
+/* --- 新增/编辑弹窗 --- */
+.golem-modal .md-dialog {
+    max-width: 400px;
+    max-height: 84vh;
+}
+
+.golem-form .md-text-field {
+    margin-bottom: 12px;
+}
+
+.golem-hint {
+    margin: -6px 0 12px;
+    font-size: var(--md-font-size-sm);
+    line-height: 1.5;
+    color: var(--md-on-surface-variant);
+}
+
+.golem-section {
+    margin-top: 4px;
+    padding-top: 12px;
+    border-top: 1px solid var(--md-outline-variant);
+}
+
+.golem-section-title {
+    margin-bottom: 10px;
+    font-size: var(--md-font-size-sm);
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--md-settings-text-dim);
+}
+
+.golem-key-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.golem-key-box {
+    flex: 1;
+    min-width: 0;
+}
+
+.golem-key-label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: var(--md-font-size-sm);
+    color: var(--md-on-surface-variant);
+}
+
+.golem-key-text {
+    display: block;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--md-surface-container-low);
+    font-family: Consolas, Menlo, monospace;
+    font-size: var(--md-font-size-base);
+    color: var(--md-on-surface);
+    word-break: break-all;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.golem-key-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.golem-status-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 0;
+    font-size: var(--md-font-size-base);
+    color: var(--md-on-surface);
+}
+
+.golem-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.golem-groups .empty {
+    padding: 16px 0;
+    text-align: center;
+    font-size: var(--md-font-size-sm);
+    color: var(--md-on-surface-variant);
+}
+
+.golem-group-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    background: var(--md-surface-container-low);
+}
+
+.golem-group-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.golem-group-name {
+    display: block;
+    font-size: var(--md-font-size-base);
+    color: var(--md-on-surface);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.golem-error {
+    display: none;
+    margin-top: 8px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--md-error-container);
+    font-size: var(--md-font-size-base);
+    color: var(--md-on-error-container);
+}
+
+.golem-error.show {
+    display: block;
+}
+
+/* --- 登录密钥展示弹窗 --- */
+.golem-key-result {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0 8px;
+}
+
+.golem-key-result code {
+    flex: 1;
+    min-width: 0;
+    padding: 10px;
+    border-radius: var(--radius-sm);
+    background: var(--md-surface-container-low);
+    font-family: Consolas, Menlo, monospace;
+    font-size: var(--md-font-size-base);
+    color: var(--md-on-surface);
+    word-break: break-all;
+}

@@ -9,7 +9,9 @@
         // 用于内联 onclick="fn('...')" 的 JS 字符串上下文转义。
         // 注意：HTML 实体（如 &#39;）在 JS 执行前会被浏览器解码为 '，会提前闭合 JS 字符串，
         // 因此不能复用 escapeAttr（只适用于 HTML 属性值上下文）。此处先做 JS 转义再转义 & 防实体注入。
-        function escapeJsString(t) { if (t == null) return ''; return String(t).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/&/g, '&amp;'); }
+        // 内联事件属性（onclick="fn('<arg>')"）参数转义：单引号做 JS 转义；
+        // 双引号用 &quot; 实体（HTML 属性不认 \"，若保留反斜杠会把属性截断，导致页面残文/事件失效）
+        function escapeJsString(t) { if (t == null) return ''; return String(t).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/\r/g, '\\r').replace(/\n/g, '\\n'); }
 
         // ============ 保存文件到本地 ============
         // 打包后的 WebView 不支持 <a download> 触发的 Blob 下载（静默失败），
@@ -390,7 +392,157 @@
         function generateId() { return Date.now().toString(36) + Math.random().toString(36).substr(2, 9); }
 
         function autoResize(el) { el.style.height = 'auto';
-            el.style.height = Math.min(el.scrollHeight, 100) + 'px'; }
+            var target = Math.min(el.scrollHeight, 100);
+            // 输入区高度可调：聊天栏被拖高后，输入框随容器高度填充（容器上下 padding 各 8px）
+            var container = el.closest('.input-container');
+            if (container) {
+                var avail = container.clientHeight - 16;
+                if (avail > 100) target = avail;
+            }
+            el.style.height = target + 'px';
+            if (typeof updateInputPlaceholder === 'function') updateInputPlaceholder(el);
+            // 输入框增高会使输入区变高，回到底部按钮需同步上移
+            if (typeof updateAllScrollButtonPositions === 'function') updateAllScrollButtonPositions(); }
+
+        // ==================== contenteditable 输入框工具 ====================
+        // 输入框为 contenteditable div，表情以 <img class="input-emoji"> 直接渲染在框内；
+        // 读取/写入走协议文本（mjv064 CQ 码 + b/i/u/s 特效标签 + \n 换行），发送链路与旧版完全一致。
+
+        // 占位提示：输入框空时显示 data-placeholder（:empty 对残留 <br> 不生效，故用类控制）
+        function updateInputPlaceholder(input) {
+            if (!input || !input.dataset || !input.dataset.placeholder) return;
+            const empty = (input.innerText || '').trim() === '' && !input.querySelector('.input-emoji');
+            input.classList.toggle('empty', empty);
+        }
+
+        // 读取输入框协议文本：表情图还原为 CQ 码、块级元素/<br> 还原为 \n、特效标签还原为 b/i/u/s
+        function serializeInputContent(node) {
+            if (node.nodeType === 3) return node.nodeValue;
+            if (node.nodeType !== 1) return '';
+            const tag = (node.tagName || '').toLowerCase();
+            if (tag === 'br') return '\n';
+            if (tag === 'img' && node.dataset && node.dataset.emojiUrl) {
+                return '<mjv064 type="emoji" name="' + escapeHtml(node.dataset.emojiName || '表情') + '" url="' + escapeHtml(node.dataset.emojiUrl) + '">[表情]</mjv064>';
+            }
+            let inner = '';
+            for (let i = 0; i < node.childNodes.length; i++) inner += serializeInputContent(node.childNodes[i]);
+            if (tag === 'div' || tag === 'p') return inner + '\n';
+            if (tag === 'b' || tag === 'strong') return '<b>' + inner + '</b>';
+            if (tag === 'i' || tag === 'em') return '<i>' + inner + '</i>';
+            if (tag === 'u') return '<u>' + inner + '</u>';
+            if (tag === 's' || tag === 'strike' || tag === 'del') return '<s>' + inner + '</s>';
+            return inner; // span 等：仅保留文本内容
+        }
+
+        function readInputValue(input) {
+            return input ? serializeInputContent(input) : '';
+        }
+
+        function clearInput(input) {
+            if (!input) return;
+            input.innerHTML = '';
+            autoResize(input);
+        }
+
+        // 光标前的文本（innerText 形式，供 @ 匹配/搜索）
+        function getTextBeforeCursor(input) {
+            const sel = window.getSelection();
+            if (!sel || !sel.rangeCount) return '';
+            const range = sel.getRangeAt(0);
+            if (!input.contains(range.startContainer)) return '';
+            const pre = range.cloneRange();
+            pre.selectNodeContents(input);
+            pre.setEnd(range.startContainer, range.startOffset);
+            const div = document.createElement('div');
+            div.appendChild(pre.cloneContents());
+            return div.innerText;
+        }
+
+        // 光标后的文本（innerText 形式，与 getTextBeforeCursor 配套）
+        function getTextAfterCursor(input) {
+            const sel = window.getSelection();
+            if (!sel || !sel.rangeCount) return '';
+            const range = sel.getRangeAt(0);
+            if (!input.contains(range.endContainer)) return '';
+            const post = range.cloneRange();
+            post.selectNodeContents(input);
+            post.setStart(range.endContainer, range.endOffset);
+            const div = document.createElement('div');
+            div.appendChild(post.cloneContents());
+            return div.innerText;
+        }
+
+        // 在光标处插入纯文本（选区替换；含换行拆为 <br>）
+        function insertTextAtCursor(input, text) {
+            if (text == null) text = '';
+            const sel = window.getSelection();
+            if (!sel || !sel.rangeCount) return;
+            const range = sel.getRangeAt(0);
+            if (!input.contains(range.commonAncestorContainer)) {
+                input.appendChild(document.createTextNode(text));
+                return;
+            }
+            range.deleteContents();
+            const frag = range.createContextualFragment(escapeHtml(text).replace(/\n/g, '<br>'));
+            range.insertNode(frag);
+            range.setStartAfter(frag.lastChild);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            autoResize(input);
+        }
+
+        // 在光标处插入表情（渲染为行内小图，发送时序列化还原为 CQ 码）
+        function insertEmojiAtCursor(input, emojiCq) {
+            const m = emojiCq.match(/<mjv064\s+([^>]*)>/);
+            const a = m ? _parseMjV064(m) : null;
+            if (!a || !a.url) {
+                insertTextAtCursor(input, emojiCq || '');
+                return;
+            }
+            const img = document.createElement('img');
+            img.className = 'input-emoji';
+            img.src = a.url;
+            img.dataset.emojiName = a.name || '表情';
+            img.dataset.emojiUrl = a.url;
+            img.alt = '';
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount && input.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+                const range = sel.getRangeAt(0);
+                range.deleteContents();
+                range.insertNode(img);
+                range.setStartAfter(img);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } else {
+                input.appendChild(img);
+            }
+            autoResize(input);
+            input.focus();
+        }
+
+        // 替换光标前的 @xxx 文本（@ 候选选择 / 智能体切换）
+        function replaceMentionText(input, atText) {
+            const sel = window.getSelection();
+            if (!sel || !sel.rangeCount) return false;
+            const range = sel.getRangeAt(0);
+            if (!input.contains(range.startContainer)) return false;
+            const container = range.startContainer;
+            if (container.nodeType !== 3) return false; // 光标不在文本节点内则放弃
+            const text = container.nodeValue;
+            const m = text.substring(0, range.startOffset).match(/@[\w\u4e00-\u9fa5]*$/);
+            if (!m) return false;
+            const rmStart = range.startOffset - m[0].length;
+            container.nodeValue = text.substring(0, rmStart) + atText + text.substring(range.startOffset);
+            const newRange = document.createRange();
+            newRange.setStart(container, rmStart + atText.length);
+            newRange.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(newRange);
+            autoResize(input);
+            return true;
+        }
 
         let snackbarTimer = null;
 
@@ -450,8 +602,31 @@
             el._atBottomNow = true;
         }
 
+        // 回到底部按钮已挂在聊天页 .page 上（定位祖先），不随消息滚动；从容器或其父级查找
+        function findScrollBtn(messagesContainer) {
+            if (!messagesContainer) return null;
+            return messagesContainer.querySelector('.scroll-to-bottom-btn') ||
+                messagesContainer.parentNode.querySelector('.scroll-to-bottom-btn');
+        }
+
+        // 输入区高度可变（拖拽/自动增高），按钮 bottom 始终钉在输入区上方
+        function updateScrollButtonPosition(messagesContainer) {
+            const btn = findScrollBtn(messagesContainer);
+            if (!btn) return;
+            const chatBar = messagesContainer.parentNode.querySelector('.chat-bar');
+            if (!chatBar) return;
+            btn.style.bottom = (chatBar.offsetHeight + 16) + 'px';
+        }
+
+        function updateAllScrollButtonPositions() {
+            ['publicMessages', 'privateMessages'].forEach(function(id) {
+                const mc = document.getElementById(id);
+                if (mc) updateScrollButtonPosition(mc);
+            });
+        }
+
         function updateScrollButton(messagesContainer) {
-            const btn = messagesContainer.querySelector('.scroll-to-bottom-btn');
+            const btn = findScrollBtn(messagesContainer);
             if (!btn) return;
             if (isScrolledToBottom(messagesContainer)) {
                 btn.classList.remove('show');
@@ -462,7 +637,7 @@
 
         function setupScrollHandlers(messagesContainer) {
             if (!messagesContainer) return;
-            const oldBtn = messagesContainer.querySelector('.scroll-to-bottom-btn');
+            const oldBtn = findScrollBtn(messagesContainer);
             if (oldBtn) oldBtn.remove();
             // 移除上一次绑定的滚动/手势监听器，避免反复进入聊天后监听器累积
             if (messagesContainer._scrollHandler) {
@@ -488,7 +663,8 @@
                 updateScrollButton(messagesContainer);
                 setTimeout(() => updateScrollButton(messagesContainer), 100);
             };
-            messagesContainer.appendChild(btn);
+            // 按钮挂在聊天页 .page 上（而非消息滚动区内），滚动消息时按钮固定不动
+            messagesContainer.parentNode.appendChild(btn);
 
             let topLoadTimer = null;
             // v08x 滚动修复：
@@ -549,6 +725,13 @@
             };
             messagesContainer._scrollHandler = scrollHandler;
             messagesContainer.addEventListener('scroll', scrollHandler);
+
+            // 初始定位 + 输入区高度变化（窗口尺寸/拖拽/自动增高）时保持钉在输入区上方
+            updateScrollButtonPosition(messagesContainer);
+            if (!window._scrollBtnResizeBound) {
+                window._scrollBtnResizeBound = true;
+                window.addEventListener('resize', updateAllScrollButtonPositions);
+            }
 
             setTimeout(() => {
                 scrollToBottom(messagesContainer);
@@ -708,6 +891,10 @@
             } else if (page === 'editProfile') {
                 pushPageHistory('editProfile');
                 switchPage('editProfilePage', true);
+            } else if (page === 'golem') {
+                pushPageHistory('golem');
+                switchPage('golemPage', true);
+                loadGolemBots();
             }
             updateBackBadge();
         }
@@ -751,7 +938,8 @@
                                  prevPage === 'editProfile' ? 'editProfilePage' :
                                  // v097: 好友相关页面
                                  prevPage === 'friends' ? 'friendsPage' :
-                                 prevPage === 'addFriend' ? 'addFriendPage' : 'homePage';
+                                 prevPage === 'addFriend' ? 'addFriendPage' :
+                                 prevPage === 'golem' ? 'golemPage' : 'homePage';
                 switchPage(targetId, false);
                 updateBackBadge();
                 // v099: 返回群聊页时恢复消息轮询（上一步 leaveGroupChat 已停止）
@@ -1393,6 +1581,47 @@
             updateFontLabel();
         }
 
+        // 聊天输入区高度拖拽调整：向上拖动增大输入区（min=自然高度，max≈屏高 60%）
+        function initChatBarResizer() {
+            ['publicChatBar', 'privateChatBar'].forEach(function(barId) {
+                var bar = document.getElementById(barId);
+                if (!bar) return;
+                var handle = document.getElementById(barId + 'Resizer');
+                if (!handle) return;
+                var minH = null;
+
+                handle.addEventListener('mousedown', function(e) {
+                    if (e.button !== 0) return;
+                    e.preventDefault();
+                    var startY = e.clientY;
+                    var startH = bar.offsetHeight;
+                    if (minH === null) minH = startH;
+                    var maxH = Math.round(window.innerHeight * 0.6);
+                    document.body.classList.add('chatbar-resizing');
+                    handle.classList.add('dragging');
+
+                    function onMove(ev) {
+                        // 鼠标上移（deltaY 为负）时高度增大
+                        var h = startH + (startY - ev.clientY);
+                        bar.style.height = Math.max(minH, Math.min(maxH, h)) + 'px';
+                        // 输入框跟随新高度（autoResize 内部会读取容器高度）
+                        var input = bar.querySelector('.msg-input');
+                        if (input && typeof autoResize === 'function') autoResize(input);
+                    }
+
+                    function onUp() {
+                        document.body.classList.remove('chatbar-resizing');
+                        handle.classList.remove('dragging');
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('mouseup', onUp);
+                    }
+
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
+                });
+            });
+        }
+
         // 左侧边栏拖动调整宽度：初始 20% 占屏，拖拽改为像素宽，min/max 由 CSS 钳制
         function initSidebarResizer() {
             var sidebar = document.querySelector('.chat-sidebar');
@@ -1444,6 +1673,7 @@
             loadCustomColor();
             updateFontLabel();
             initSidebarResizer();
+            initChatBarResizer();
 
             // 主题变更回调：同步设置页 UI，并清除主题色内联覆盖（避免覆盖自定义主题颜色）
             if (window.ThemeManager) {
@@ -1764,3 +1994,115 @@
         });
 
         window.addEventListener('DOMContentLoaded', init);
+
+        /* ==========================================================================
+           对话框焦点管理（MD3 无障碍）
+           - 打开对话框：记录失焦元素，并把焦点移入对话框内首个可聚焦控件；
+           - 关闭对话框：焦点还原到打开前的元素；
+           - 焦点陷阱：对话框内 Tab 循环，防止焦点逃逸到背景页面。
+           通过 MutationObserver 监听 .dialog-overlay 的 hidden 类切换，
+           无需改动各对话框的开关调用点。键盘可达性兜底在 base.css :focus-visible。
+           ========================================================================== */
+        function initDialogFocus() {
+            var FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+            var lastFocusEl = null;
+
+            function getVisibleOverlay() {
+                var overlays = document.querySelectorAll('.dialog-overlay');
+                for (var i = 0; i < overlays.length; i++) {
+                    if (!overlays[i].classList.contains('hidden')) return overlays[i];
+                }
+                return null;
+            }
+
+            function getFocusable(el) {
+                if (!el) return [];
+                var nodes = el.querySelectorAll(FOCUSABLE);
+                var out = [];
+                for (var i = 0; i < nodes.length; i++) {
+                    if (nodes[i].getClientRects().length > 0) out.push(nodes[i]);
+                }
+                return out;
+            }
+
+            function focusFirst(el) {
+                var list = getFocusable(el);
+                if (list.length) {
+                    list[0].focus();
+                } else {
+                    el.setAttribute('tabindex', '-1');
+                    el.focus({ preventScroll: true });
+                }
+            }
+
+            // 监听每个对话框的 hidden 类切换
+            var dialogMo = new MutationObserver(function(muts) {
+                for (var i = 0; i < muts.length; i++) {
+                    var m = muts[i];
+                    if (m.type !== 'attributes' || m.attributeName !== 'class') continue;
+                    var el = m.target;
+                    if (!el.classList || !el.classList.contains('dialog-overlay')) continue;
+                    var shown = !el.classList.contains('hidden');
+                    if (shown) {
+                        lastFocusEl = document.activeElement;
+                        focusFirst(el);
+                    } else if (el.contains(document.activeElement)) {
+                        if (lastFocusEl && document.body.contains(lastFocusEl)) {
+                            lastFocusEl.focus();
+                        } else {
+                            document.activeElement.blur();
+                        }
+                        lastFocusEl = null;
+                    }
+                }
+            });
+
+            // 监听动态新增的对话框并纳入观察
+            var bodyMo = new MutationObserver(function(muts) {
+                for (var i = 0; i < muts.length; i++) {
+                    var m = muts[i];
+                    if (m.type !== 'childList') continue;
+                    for (var j = 0; j < m.addedNodes.length; j++) {
+                        var n = m.addedNodes[j];
+                        if (n.nodeType !== 1) continue;
+                        var found = n.classList && n.classList.contains('dialog-overlay') ? [n] : (n.querySelectorAll ? n.querySelectorAll('.dialog-overlay') : []);
+                        for (var k = 0; k < found.length; k++) {
+                            dialogMo.observe(found[k], { attributes: true, attributeFilter: ['class'] });
+                        }
+                    }
+                }
+            });
+
+            // 焦点陷阱：对话框内 Tab 循环
+            document.addEventListener('keydown', function(e) {
+                if (e.key !== 'Tab') return;
+                var overlay = getVisibleOverlay();
+                if (!overlay) return;
+                var list = getFocusable(overlay);
+                if (!list.length) {
+                    e.preventDefault();
+                    overlay.focus({ preventScroll: true });
+                    return;
+                }
+                var first = list[0];
+                var last = list[list.length - 1];
+                var active = document.activeElement;
+                if (e.shiftKey) {
+                    if (active === first || !overlay.contains(active)) {
+                        e.preventDefault();
+                        last.focus();
+                    }
+                } else if (active === last || !overlay.contains(active)) {
+                    e.preventDefault();
+                    first.focus();
+                }
+            });
+
+            var overlays = document.querySelectorAll('.dialog-overlay');
+            for (var i = 0; i < overlays.length; i++) {
+                dialogMo.observe(overlays[i], { attributes: true, attributeFilter: ['class'] });
+            }
+            bodyMo.observe(document.body, { childList: true, subtree: true });
+        }
+
+        window.addEventListener('DOMContentLoaded', initDialogFocus);

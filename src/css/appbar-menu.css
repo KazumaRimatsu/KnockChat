@@ -28,7 +28,7 @@
 }
 
 .app-bar .title {
-    font-size: 1.125rem;
+    font-size: 1.375rem;
     font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
 }
 
@@ -42,7 +42,7 @@
 
 /* v089: 在线时绿色高亮 */
 .app-bar .private-status.online {
-    color: #4caf50;
+    color: var(--md-success);
 }
 
 /* v089: 公聊页顶栏在线人数 */
@@ -57,6 +57,7 @@
 /* 圆形图标按钮基础样式（返回键与图标键共用） */
 .app-bar .back-btn,
 .icon-button {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -70,18 +71,41 @@
     cursor: pointer;
 }
 
+/* 触控扩展：40px 视觉 → 48dp 点击区 */
+.app-bar .back-btn::before,
+.icon-button::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+}
+
 .icon-button {
-    position: relative;
-    overflow: hidden;
     transition: background 0.2s;
 }
 
-.app-bar .back-btn:hover {
+.app-bar .back-btn:hover,
+.icon-button:hover {
     background: var(--md-surface-container-high);
 }
 
+.app-bar .back-btn:active,
 .icon-button:active {
-    background: var(--md-surface-container-high);
+    background: var(--md-surface-container-highest);
+}
+
+.app-bar .back-btn:focus-visible,
+.icon-button:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: -2px;
+}
+
+.app-bar .back-btn:disabled,
+.icon-button:disabled {
+    color: var(--md-on-surface-variant);
+    opacity: 0.38;
+    cursor: default;
+    pointer-events: none;
 }
 
 .app-bar .back-btn svg,
@@ -91,17 +115,17 @@
     fill: currentColor;
 }
 
-/* 返回键未读数角标 */
+/* 返回键未读数角标（MD3 Badge：高 16dp、满圆角） */
 .app-bar .back-badge {
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    min-width: 18px;
-    height: 18px;
+    min-width: 16px;
+    height: 16px;
     margin-left: 2px;
-    padding: 0 5px;
-    border-radius: var(--radius-md);
+    padding: 0 4px;
+    border-radius: var(--radius-full);
     background: var(--md-error);
     font-size: 0.6875rem;
     font-weight: 600;
@@ -154,7 +178,7 @@
     max-width: 280px;
     margin-top: 56px;
     padding: 20px 16px 12px;
-    border-radius: var(--radius-xl);
+    border-radius: var(--radius-xs);
     background: var(--md-menu-bg-card);
     box-shadow: var(--md-elevation-3);
     animation: menu-slide 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -221,11 +245,13 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 8px;
-    border-radius: var(--radius-sm);
+    min-height: 48px;
+    padding: 4px 8px;
+    border-radius: var(--radius-xs);
     background: var(--md-menu-item-bg);
     font-size: 0.875rem;
-    color: var(--md-menu-text-muted);
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    color: var(--md-menu-text);
     cursor: pointer;
     transition: background 0.15s;
 }
@@ -238,9 +264,14 @@
     background: var(--md-menu-item-active);
 }
 
+.user-menu-card .menu-list li:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: -2px;
+}
+
 .user-menu-card .menu-list li svg {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     fill: currentColor;
     opacity: 0.7;
 }
@@ -249,75 +280,22 @@
     color: var(--md-error);
 }
 
-/* 菜单项右侧徽标（如好友申请数） */
+/* 菜单项右侧徽标（如好友申请数，MD3 Badge：高 16dp、满圆角） */
 .user-menu-card .menu-list li .menu-badge {
     display: flex;
     align-items: center;
     justify-content: center;
     margin-left: auto;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: var(--radius-md);
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: var(--radius-full);
     background: var(--md-error);
     font-size: 0.6875rem;
     font-weight: 600;
     color: var(--md-on-error);
 }
 
-/* --- 头像底部菜单（移动端 bottom sheet） --- */
-.avatar-menu {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 150;
-    padding: 16px;
-    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-    background: var(--md-menu-bg-sheet);
-    box-shadow: var(--md-elevation-3);
-    animation: slide-up 0.25s ease;
-}
-
-@keyframes slide-up {
-    from {
-        transform: translateY(100%);
-    }
-
-    to {
-        transform: translateY(0);
-    }
-}
-
-.avatar-menu .menu-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 16px;
-    border-radius: var(--radius-sm);
-    font-size: 1rem;
-    color: var(--md-menu-text);
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-.avatar-menu .menu-item:hover {
-    background: var(--md-menu-hover);
-}
-
-.avatar-menu .menu-item svg {
-    width: 24px;
-    height: 24px;
-    fill: currentColor;
-    opacity: 0.7;
-}
-
-.avatar-menu .cancel-btn {
-    margin-top: 8px;
-    padding: 14px;
-    border-top: var(--md-outline-width) var(--md-outline-style) var(--md-menu-border);
-    text-align: center;
-    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
-    color: var(--md-menu-text-dim);
-    cursor: pointer;
-}
+/* 注：旧版「头像底部菜单」(.avatar-menu) 已无任何 HTML/JS 引用，属遗留代码，
+   已随本次规范审查移除（原实现无默认隐藏态，若被重新注入会常驻遮挡屏幕）。
+   移动端头像菜单统一使用上方 .user-menu-card 菜单弹层。 */

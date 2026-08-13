@@ -86,6 +86,27 @@
     /* 头像文字 */
     --md-avatar-text: #FFFFFF;
 
+    /* 对话框遮罩（MD3 scrim 规范 32%） */
+    --md-scrim-dialog: rgba(0, 0, 0, 0.32);
+
+    /* 群主标记色（g-owner-tag）——浅色主题用深色前景保证小字号对比度 ≥4.5:1 */
+    --md-owner-tag-bg: rgba(241, 175, 99, 0.16);
+    --md-owner-tag: #8A5A00;
+
+    /* 好友专属标记色（fr-* / private-friend-tag） */
+    --md-friend-tag-bg: rgba(125, 99, 241, 0.16);
+    --md-friend-tag: #4F46D6;
+
+    /* 智能体标记色（mention-role.agent） */
+    --md-agent-tag-bg: rgba(150, 184, 4, 0.18);
+    --md-agent-tag: #5F7300;
+
+    /* MD3 按钮状态层（实心按钮叠加于 on-primary，文字按钮叠加于 primary） */
+    --md-btn-state-hover: rgba(255, 255, 255, 0.08);
+    --md-btn-state-active: rgba(255, 255, 255, 0.12);
+    --md-btn-text-hover: rgba(25, 118, 210, 0.08);
+    --md-btn-text-active: rgba(25, 118, 210, 0.12);
+
     /* 阴影 */
     --md-elevation-1: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
     --md-elevation-2: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
@@ -282,6 +303,38 @@
     --md-fview-cap-close-text: var(--md-on-surface-variant);
     --md-fview-cap-close-hover-bg: rgba(0, 0, 0, 0.1);
     --md-fview-unsupported-text: var(--md-on-surface-variant);
+
+    /* === 用户资料页（profile） === */
+    /* 资料页横幅渐变（品牌紫渐变，明暗主题共用，主题文件可整体覆盖） */
+    --md-profile-banner-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    --md-profile-bar-hover: rgba(255, 255, 255, 0.15);
+    --md-profile-bar-active: rgba(255, 255, 255, 0.3);
+    --md-profile-icon-shadow: rgba(0, 0, 0, 0.3);
+    --md-profile-hint-bg: rgba(0, 0, 0, 0.5);
+    --md-profile-hint-text: #FFFFFF;
+
+    /* === 图片裁剪编辑器（固定黑底专业工具场景，不随主题） === */
+    --md-image-editor-bg: #000000;
+    --md-image-editor-grid: rgba(255, 255, 255, 0.08);
+    --md-image-editor-crop-border: #FFFFFF;
+    --md-image-editor-scrim: rgba(0, 0, 0, 0.65);
+    --md-image-editor-btn: #FFFFFF;
+    --md-image-editor-zoom-bg: rgba(255, 255, 255, 0.1);
+    --md-image-editor-zoom-active: rgba(255, 255, 255, 0.22);
+    --md-image-editor-zoom-pressed: rgba(255, 255, 255, 0.35);
+    --md-image-editor-text: rgba(255, 255, 255, 0.85);
+    --md-image-editor-backdrop: rgba(0, 0, 0, 0.85);
+    --md-image-editor-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+
+    /* === 视频消息（聊天气泡缩略图 / 文件预览播放器，固定黑底不随主题） === */
+    --md-video-bubble-bg: #000000;
+    --md-video-overlay: rgba(0, 0, 0, 0.35);
+    --md-video-overlay-hover: rgba(0, 0, 0, 0.5);
+    --md-video-name-gradient: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+    --md-video-name-text: #FFFFFF;
+
+    /* === 文件预览：代码块（固定暗色，类 GitHub 风格） === */
+    --md-fview-code-bg: #0d1117;
 }
 
 [data-theme="dark"] {
@@ -361,6 +414,27 @@
 
     /* 头像文字 */
     --md-avatar-text: #FFFFFF;
+
+    /* 对话框遮罩（暗色加强） */
+    --md-scrim-dialog: rgba(0, 0, 0, 0.48);
+
+    /* 群主标记色（暗色） */
+    --md-owner-tag-bg: rgba(255, 199, 130, 0.16);
+    --md-owner-tag: #FFC782;
+
+    /* 好友专属标记色（暗色） */
+    --md-friend-tag-bg: rgba(197, 177, 255, 0.16);
+    --md-friend-tag: #C9B8FF;
+
+    /* 智能体标记色（暗色） */
+    --md-agent-tag-bg: rgba(156, 214, 125, 0.18);
+    --md-agent-tag: #C4E8A4;
+
+    /* MD3 按钮状态层（暗色） */
+    --md-btn-state-hover: rgba(0, 50, 88, 0.12);
+    --md-btn-state-active: rgba(0, 50, 88, 0.2);
+    --md-btn-text-hover: rgba(160, 202, 253, 0.1);
+    --md-btn-text-active: rgba(160, 202, 253, 0.16);
 
     /* 阴影 */
     --md-elevation-1: 0 1px 3px 1px rgba(0, 0, 0, 0.4), 0 1px 2px 0 rgba(0, 0, 0, 0.4);

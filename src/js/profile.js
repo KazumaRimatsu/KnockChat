@@ -151,7 +151,7 @@
             const editBtn = document.getElementById('udEditBtn');
 
             // Avatar: 先显示加载动画
-            avatarEl.innerHTML = '<div class="md-circular-loader" style="width:24px;height:24px;"><svg viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"/></svg></div>';
+            avatarEl.innerHTML = '<span class="md-circular-loader" style="width:24px;height:24px;"><svg viewBox="0 0 22 22" style="width:24px;height:24px;"><circle cx="11" cy="11" r="9.5"/></svg></span>';
             avatarEl.style.backgroundImage = '';
             avatarEl.style.backgroundColor = '#fff';
             avatarEl.className = 'ud-avatar';
@@ -160,7 +160,7 @@
             if (uidEl) uidEl.textContent = '';
             statusEl.textContent = '';
             // Info list 加载动画
-            infoList.innerHTML = '<div style="text-align:center;padding:40px;"><div class="md-circular-loader" style="width:32px;height:32px;margin:0 auto;"><svg viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"/></svg></div></div>';
+            infoList.innerHTML = '<div style="text-align:center;padding:40px;"><span class="md-circular-loader" style="width:32px;height:32px;margin:0 auto;"><svg viewBox="0 0 22 22" style="width:32px;height:32px;"><circle cx="11" cy="11" r="9.5"/></svg></span></div>';
             editBtn.style.display = _udTargetIsSelf ? 'flex' : 'none';
 
             // 背景加载动画
@@ -168,7 +168,7 @@
             const bgLoader = document.createElement('div');
             bgLoader.id = 'udBgLoader';
             bgLoader.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1;';
-            bgLoader.innerHTML = '<div class="md-circular-loader" style="width:32px;height:32px;color:#fff;"><svg viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"/></svg></div>';
+            bgLoader.innerHTML = '<span class="md-circular-loader" style="width:32px;height:32px;color:#fff;"><svg viewBox="0 0 22 22" style="width:32px;height:32px;"><circle cx="11" cy="11" r="9.5"/></svg></span>';
             bgEl.appendChild(bgLoader);
 
             function removeBgLoader() {
@@ -527,7 +527,7 @@
             const overlay = document.createElement('div');
             overlay.id = 'epSavingOverlay';
             overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:99998;display:flex;align-items:center;justify-content:center;';
-            overlay.innerHTML = '<div class="md-circular-loader" style="width:48px;height:48px;color:#fff;"><svg viewBox="0 0 50 50"><circle cx="25" cy="25" r="20"/></svg></div>';
+            overlay.innerHTML = '<span class="md-circular-loader" style="width:48px;height:48px;color:#fff;"><svg viewBox="0 0 22 22" style="width:48px;height:48px;"><circle cx="11" cy="11" r="9.5"/></svg></span>';
             document.body.appendChild(overlay);
             try {
 

@@ -5,17 +5,20 @@
    与对话框（dialog.css）区分：本模块为轻量浮动层，不阻塞交互。
    ========================================================================== */
 
-/* --- Snackbar 提示条 --- */
+/* --- Snackbar 提示条（MD3：高 48dp、圆角 4dp、inverse-surface） --- */
 .snackbar {
     position: fixed;
     bottom: 24px;
     left: 50%;
-    z-index: 200;
+    z-index: 800; /* 高于对话框(200)/确认弹窗(700)/fview(550)，低于启动加载页(999) */
     max-width: 90vw;
+    min-height: 48px;
+    display: flex;
+    align-items: center;
     padding: 12px 16px;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-xs);
     background: var(--md-snackbar-bg);
-    font-size: 0.875rem;
+    font-size: var(--md-font-size-base);
     color: var(--md-snackbar-text);
     box-shadow: var(--md-elevation-4);
     transform: translateX(-50%);
@@ -58,8 +61,8 @@
 }
 
 .media-zoom-btn {
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -81,9 +84,14 @@
     transform: scale(0.92);
 }
 
+.media-zoom-btn:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
+}
+
 .media-zoom-reset {
     min-width: 48px;
-    height: 28px;
+    min-height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -91,7 +99,7 @@
     border-radius: var(--radius-lg);
     background: var(--md-fview-btn-bg);
     color: var(--md-fview-btn-text);
-    font-size: 0.75rem;
+    font-size: var(--md-font-size-sm);
     cursor: pointer;
     transition: background 0.2s, border-color 0.2s;
     -webkit-tap-highlight-color: transparent;
@@ -99,6 +107,16 @@
 
 .media-zoom-reset:hover {
     background: var(--md-fview-btn-hover-bg);
+    border-color: var(--md-fview-btn-hover-border);
+}
+
+.media-zoom-reset:active {
+    background: var(--md-fview-btn-hover-bg);
+}
+
+.media-zoom-reset:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
 }
 
 .media-viewer-body {
@@ -175,7 +193,7 @@
     padding: 16px;
     box-sizing: border-box;
     overflow: auto;
-    background: #0d1117;
+    background: var(--md-fview-code-bg);
     touch-action: auto;
     -webkit-user-select: text;
     user-select: text;
@@ -187,7 +205,7 @@
 
 .fview-code code.hljs {
     font-family: 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
-    font-size: 0.85rem;
+    font-size: var(--md-font-size-base);
     line-height: 1.6;
     background: transparent;
     padding: 0;
@@ -196,7 +214,7 @@
 /* 不支持的格式：空白页居中提示 */
 .fview-unsupported {
     color: var(--md-fview-unsupported-text);
-    font-size: 0.95rem;
+    font-size: var(--md-font-size-md);
     letter-spacing: 1px;
 }
 
@@ -212,7 +230,7 @@
     max-width: 100%;
     max-height: 100%;
     outline: none;
-    background: #000;
+    background: var(--md-video-bubble-bg);
 }
 
 .fview-video.hidden {
@@ -240,7 +258,7 @@
 #fviewContainer {
     position: fixed;
     inset: 0;
-    z-index: 550; /* 高于确认弹窗(600)/上下文菜单(500)，低于启动加载页(999) */
+    z-index: 550; /* 高于消息上下文菜单(500)与对话框遮罩(200)，低于确认弹窗(700)与启动加载页(999) */
     overflow: hidden;
     pointer-events: none;
 }
@@ -253,7 +271,7 @@
     min-height: 180px;
     overflow: hidden;
     border: 1px solid var(--md-fview-window-border);
-    border-radius: 12px;
+    border-radius: var(--radius-md);
     background: var(--md-fview-window-bg);
     box-shadow: var(--md-fview-shadow);
     pointer-events: auto;
@@ -297,8 +315,8 @@
 .fview-min-btn,
 .fview-close-btn {
     flex-shrink: 0;
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -314,6 +332,12 @@
 .fview-min-btn:hover {
     background: var(--md-fview-btn-hover-bg);
     border-color: var(--md-fview-btn-hover-border);
+}
+
+.fview-min-btn:focus-visible,
+.fview-close-btn:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
 }
 
 .fview-close-btn {
@@ -476,7 +500,7 @@
 }
 
 .fview-cap-title {
-    font-size: 0.8rem;
+    font-size: var(--md-font-size-sm);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -489,6 +513,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
     border: none;
     border-radius: 50%;
     background: transparent;
@@ -497,9 +522,22 @@
     padding: 0;
 }
 
+/* 隐形触控扩展：22px 视觉目标扩展为 44px 点击区 */
+.fview-cap-close::before {
+    content: '';
+    position: absolute;
+    inset: -11px;
+    border-radius: 50%;
+}
+
 .fview-cap-close:hover {
     background: var(--md-fview-cap-close-hover-bg);
     color: var(--md-fview-capsule-text);
+}
+
+.fview-cap-close:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
 }
 
 /* --- 视频消息气泡 --- */
@@ -510,7 +548,7 @@
     border-radius: var(--radius-md);
     overflow: hidden;
     cursor: pointer;
-    background: #000;
+    background: var(--md-video-bubble-bg);
 }
 
 .video-bubble video {
@@ -526,12 +564,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.35);
+    background: var(--md-video-overlay);
     transition: background 0.2s;
 }
 
 .video-bubble:hover .video-play-overlay {
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--md-video-overlay-hover);
 }
 
 .video-name {
@@ -540,23 +578,24 @@
     left: 0;
     right: 0;
     padding: 6px 10px;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-    color: #fff;
-    font-size: 0.75rem;
+    background: var(--md-video-name-gradient);
+    color: var(--md-video-name-text);
+    font-size: var(--md-font-size-sm);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-/* --- 消息长按菜单（上下文菜单） --- */
+/* --- 消息长按菜单（上下文菜单，MD3 菜单：圆角 4dp） --- */
 .msg-context-menu {
     position: fixed;
     z-index: 500;
     display: none;
     min-width: 140px;
+    max-height: 80vh;
     padding: 4px 0;
-    overflow: hidden;
-    border-radius: var(--radius-md);
+    overflow-y: auto;
+    border-radius: var(--radius-xs);
     background: var(--md-menu-bg);
     box-shadow: var(--md-elevation-3);
 }
@@ -581,9 +620,11 @@
 .msg-context-menu .menu-item {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 16px;
+    gap: 12px;
+    min-height: 48px;
+    padding: 4px 16px;
     font-size: 0.875rem;
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
     color: var(--md-menu-text);
     cursor: pointer;
     transition: background 0.1s;
@@ -594,13 +635,18 @@
     background: var(--md-menu-hover);
 }
 
+.msg-context-menu .menu-item:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: -2px;
+}
+
 .msg-context-menu .menu-item.danger {
     color: var(--md-error);
 }
 
 .msg-context-menu .menu-item svg {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     fill: currentColor;
     opacity: 0.7;
 }

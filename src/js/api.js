@@ -377,6 +377,9 @@
             if (password.length < 6) return showEl('regError', '密码至少 6 个字符');
             if (password !== password2) return showEl('regError', '两次密码不一致');
 
+            // 网络操作期间显示注册按钮加载动画
+            setRegLoading(true);
+
             try {
                 // 先检查用户名是否已存在（RPC）
                 let usernameExists = false;
@@ -449,7 +452,17 @@
                 }, 1200);
             } catch (e) {
                 showEl('regError', '注册失败，请重试');
+            } finally {
+                setRegLoading(false);
             }
+        }
+
+        // 注册按钮加载态：禁用按钮并在其上显示圆形加载动画（复用 md-circular-loader）
+        function setRegLoading(on) {
+            var btn = document.getElementById('regBtn');
+            var loader = document.getElementById('regBtnLoader');
+            if (btn) btn.disabled = on;
+            if (loader) loader.classList.toggle('hidden', !on);
         }
 
         function clearRegForm() {
@@ -1491,6 +1504,10 @@
             okBtn.addEventListener('click', function() { doDeleteAccountConfirm(); });
             actions.appendChild(okBtn);
             dialog.appendChild(actions);
+            // 点击遮罩关闭（与其它对话框行为一致）
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) overlay.remove();
+            });
             overlay.appendChild(dialog);
             document.body.appendChild(overlay);
             setTimeout(function() { input.focus(); }, 100);

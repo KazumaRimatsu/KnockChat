@@ -42,7 +42,7 @@
 }
 
 .auth-brand {
-    font-size: 1.5rem;
+    font-size: var(--md-font-size-xxl);
     font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
     letter-spacing: 0.02em;
     color: var(--md-on-surface);
@@ -77,15 +77,15 @@
     width: 72px;
     height: 72px;
     border-radius: 50%;
-    font-size: 2rem;
-    font-weight: 700;
+    font-size: var(--md-font-size-xxl);
+    font-weight: var(--md-font-weight-bold);
     color: var(--md-avatar-text);
 }
 
 .quick-login-user {
     margin-top: 8px;
-    font-size: 1.2rem;
-    font-weight: 600;
+    font-size: var(--md-font-size-xl);
+    font-weight: var(--md-font-weight-bold);
     color: var(--md-on-surface);
 }
 
@@ -130,7 +130,7 @@
 /* 登录/注册切换链接 */
 .auth-switch {
     text-align: center;
-    font-size: 0.8125rem;
+    font-size: var(--md-font-size-base);
     color: var(--md-on-surface-variant);
 }
 
@@ -141,6 +141,16 @@
     cursor: pointer;
 }
 
+.auth-switch a:hover {
+    text-decoration: underline;
+}
+
+.auth-switch a:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-xs);
+}
+
 /* 表单提示条：默认隐藏，JS 添加 .show 后显示；
    错误与成功共用布局，仅配色不同（边框走全局描边令牌） */
 .auth-error,
@@ -148,7 +158,7 @@
     display: none;
     padding: 10px 14px;
     border-radius: var(--radius-md);
-    font-size: 0.8125rem;
+    font-size: var(--md-font-size-base);
     line-height: 1.4;
 }
 

@@ -54,110 +54,180 @@
             return '';
         }
 
-        // 语音录制工厂：公聊/私聊共用同一套录音、计时、上传流程
+        // 语音录制工厂（QQ 风格「按住说话」）：公聊/私聊共用同一套录音、计时、上传流程。
+        // 按住按钮开始录音，松开发送，按住期间拖出按钮区域则松开取消。
         function createVoiceRecorder(config) {
             const RECORD_MIC_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/></svg>';
             const RECORD_STOP_ICON = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
-            const state = { recorder: null, chunks: [], startTime: null, timerInterval: null, maxTimer: null };
+            const state = { recorder: null, chunks: [], startTime: null, timerInterval: null, maxTimer: null, canceled: false, pressing: false };
 
-            function reset() {
-                const btn = document.getElementById(config.ids.btn);
-                const timer = document.getElementById(config.ids.timer);
-                const hint = document.getElementById(config.ids.hint);
-                const stopBtn = document.getElementById(config.ids.stopBtn);
-                btn.classList.remove('recording');
-                btn.innerHTML = RECORD_MIC_ICON;
-                timer.textContent = '00:00';
-                hint.textContent = '点击开始录音';
-                stopBtn.classList.remove('show');
-                if (state.timerInterval) { clearInterval(state.timerInterval); state.timerInterval = null; }
-                if (state.maxTimer) { clearTimeout(state.maxTimer); state.maxTimer = null; }
+            function el(id) { return document.getElementById(id); }
+            function getBtn() { return el(config.ids.voiceBtn); }
+            function getTip() { return el(config.ids.voiceTip); }
+            function getTimer() { return el(config.ids.voiceTimer); }
+
+            // 语音按钮 UI：待命 / 录音中（含上滑取消提示）
+            function updateUI(recording, canceling) {
+                const btn = getBtn();
+                if (!btn) return;
+                if (recording) {
+                    btn.classList.add('recording');
+                    btn.innerHTML = RECORD_STOP_ICON + '<span>松开 发送</span>';
+                } else {
+                    btn.classList.remove('recording');
+                    btn.innerHTML = RECORD_MIC_ICON + '<span>按住说话</span>';
+                }
+                const tip = getTip();
+                if (tip) {
+                    tip.textContent = recording ? (canceling ? '松开 取消' : '松开 发送 · 上滑 取消') : '松开发送 · 上滑取消';
+                }
             }
 
-            async function toggle() {
-                const btn = document.getElementById(config.ids.btn);
-                const timer = document.getElementById(config.ids.timer);
-                const hint = document.getElementById(config.ids.hint);
-                const stopBtn = document.getElementById(config.ids.stopBtn);
-                if (!state.recorder || state.recorder.state === 'inactive') {
-                    try {
-                        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                        state.chunks = [];
-                        const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
-                        state.recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
-                        state.recorder.ondataavailable = (e) => { if (e.data.size > 0) state.chunks.push(e.data); };
-                        state.recorder.onstop = async () => {
-                            stream.getTracks().forEach(t => t.stop());
-                            const audioBlob = new Blob(state.chunks, { type: mimeType || 'audio/webm' });
-                            if (audioBlob.size < 1000) {
-                                showSnackbar(config.tooShortMsg);
-                                reset();
-                                return;
-                            }
-                            // 语音大小上限校验（先校验再上传）
-                            const sizeErr = fileSizeError(audioBlob, MAX_VOICE_SIZE, '语音');
-                            if (sizeErr) {
-                                showSnackbar(sizeErr);
-                                reset();
-                                return;
-                            }
-                            await upload(audioBlob, mimeType || 'audio/webm');
-                            reset();
-                        };
-                        state.recorder.start();
-                        state.startTime = Date.now();
-                        // 最长录制时长：到点自动停止（onstop 内还会做大小校验）
-                        state.maxTimer = setTimeout(() => {
-                            if (state.recorder && state.recorder.state === 'recording') {
-                                showSnackbar(`语音最长 ${MAX_VOICE_DURATION} 秒`);
-                                state.recorder.stop();
-                            }
-                        }, MAX_VOICE_DURATION * 1000);
-                        btn.classList.add('recording');
-                        btn.innerHTML = RECORD_STOP_ICON;
-                        hint.textContent = '正在录音...';
-                        stopBtn.classList.add('show');
-                        state.timerInterval = setInterval(() => {
-                            timer.textContent = formatDuration(Math.floor((Date.now() - state.startTime) / 1000));
-                        }, 1000);
-                    } catch (e) {
-                        showSnackbar('无法访问麦克风');
-                    }
-                } else if (state.recorder.state === 'recording') {
+            function clearTimers() {
+                if (state.timerInterval) { clearInterval(state.timerInterval); state.timerInterval = null; }
+                if (state.maxTimer) { clearTimeout(state.maxTimer); state.maxTimer = null; }
+                const timer = getTimer();
+                if (timer) timer.textContent = '00:00';
+            }
+
+            async function start() {
+                if (state.recorder && state.recorder.state !== 'inactive') return;
+                try {
+                    // 开始录音时快照会话上下文：录音期间切换群/私聊会话，发送仍回到原会话
+                    state.ctx = (config.getCtx && config.getCtx()) || {};
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    state.chunks = [];
+                    state.canceled = false;
+                    const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+                    state.recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+                    state.recorder.ondataavailable = (e) => { if (e.data.size > 0) state.chunks.push(e.data); };
+                    state.recorder.onstop = async () => {
+                        stream.getTracks().forEach(t => t.stop());
+                        clearTimers();
+                        updateUI(false, false);
+                        if (state.canceled) return;
+                        const audioBlob = new Blob(state.chunks, { type: mimeType || 'audio/webm' });
+                        if (audioBlob.size < 1000) {
+                            showSnackbar(config.tooShortMsg);
+                            return;
+                        }
+                        // 语音大小上限校验（先校验再上传）
+                        const sizeErr = fileSizeError(audioBlob, MAX_VOICE_SIZE, '语音');
+                        if (sizeErr) {
+                            showSnackbar(sizeErr);
+                            return;
+                        }
+                        await upload(audioBlob, mimeType || 'audio/webm');
+                    };
+                    state.recorder.start();
+                    state.startTime = Date.now();
+                    // 最长录制时长：到点自动停止（onstop 内还会做大小校验）
+                    state.maxTimer = setTimeout(() => {
+                        if (state.recorder && state.recorder.state === 'recording') {
+                            showSnackbar(`语音最长 ${MAX_VOICE_DURATION} 秒`);
+                            state.recorder.stop();
+                        }
+                    }, MAX_VOICE_DURATION * 1000);
+                    state.timerInterval = setInterval(() => {
+                        const timer = getTimer();
+                        if (timer) timer.textContent = formatDuration(Math.floor((Date.now() - state.startTime) / 1000));
+                    }, 1000);
+                    updateUI(true, false);
+                } catch (e) {
+                    showSnackbar('无法访问麦克风');
+                }
+            }
+
+            // 停止录音：cancel 为 true 时丢弃本次录音
+            function stop(cancel) {
+                state.canceled = !!cancel;
+                if (state.recorder && state.recorder.state === 'recording') {
                     state.recorder.stop();
                 }
             }
 
             async function upload(blob, mimeType) {
                 const ext = mimeType.includes('webm') ? 'webm' : 'm4a';
-                const filePath = config.makePath(ext);
+                const ctx = state.ctx || {};
+                const filePath = config.makePath(ctx, ext);
                 showSnackbar('正在上传语音...');
                 try {
                     const url = await uploadToBucket(filePath, blob, mimeType);
                     if (!url) return;
                     const duration = state.startTime ? Math.floor((Date.now() - state.startTime) / 1000) : 0;
-                    await config.onUploaded(duration, url);
+                    await config.onUploaded(ctx, duration, url);
+                    // 发送成功后退出语音模式，恢复文本输入（QQ 风格）
+                    toggleVoiceMode(config.scope, true);
                 } catch (e) { showSnackbar('上传失败'); }
             }
 
-            return { toggle: toggle, reset: reset, state: state };
+            // 按住说话事件绑定（pointer 事件统一处理鼠标/触摸）
+            function bindPress() {
+                const btn = getBtn();
+                if (!btn || btn.dataset.pressBound) return;
+                btn.dataset.pressBound = '1';
+                let canceling = false;
+                btn.addEventListener('pointerdown', function(e) {
+                    e.preventDefault();
+                    state.pressing = true;
+                    canceling = false;
+                    start();
+                });
+                // 指针移出按钮区域后仍要跟踪（上滑取消判定），故绑在 window
+                window.addEventListener('pointermove', function(e) {
+                    if (!state.pressing) return;
+                    const r = btn.getBoundingClientRect();
+                    const outside = e.clientX < r.left - 6 || e.clientX > r.right + 6 || e.clientY < r.top - 6 || e.clientY > r.bottom + 6;
+                    canceling = outside;
+                    updateUI(true, canceling);
+                });
+                function endPress(e) {
+                    if (!state.pressing) return;
+                    state.pressing = false;
+                    if (e.type === 'pointercancel') { stop(true); return; }
+                    stop(canceling);
+                    canceling = false;
+                }
+                btn.addEventListener('pointerup', endPress);
+                btn.addEventListener('pointercancel', endPress);
+                // 拖出按钮区域后松开不再触发按钮事件，window 兜底结束录音
+                window.addEventListener('pointerup', function() {
+                    if (state.pressing) {
+                        state.pressing = false;
+                        stop(canceling);
+                        canceling = false;
+                    }
+                });
+            }
+
+            bindPress();
+
+            return {
+                state: state,
+                start: start,
+                stop: stop,
+                reset: function() { updateUI(false, false); clearTimers(); }
+            };
         }
 
         const publicRecorder = createVoiceRecorder({
-            ids: { btn: 'recordBtn', timer: 'recordTimer', hint: 'recordHint', stopBtn: 'recordStopBtn' },
+            ids: { voiceBtn: 'publicVoiceBtn', voiceTip: 'publicVoiceTip', voiceTimer: 'publicVoiceTimer' },
+            scope: 'public',
             tooShortMsg: '录音太短',
+            // 录音开始时快照当前群，防止录音期间切换群导致发错
+            getCtx: () => ({ groupId: currentGroupId }),
             // v100.x: 群聊语音存储路径（目录式：groups/<gid>/voice/，不计入群文件用量与列表）
-            makePath: (ext) => `groups/${currentGroupId || 'unknown'}/voice/${Date.now()}-${generateId()}.${ext}`,
-            onUploaded: async (duration, url) => {
-                if (!currentGroupId) { showSnackbar('请先选择群聊'); return; }
+            makePath: (ctx, ext) => `groups/${ctx.groupId || 'unknown'}/voice/${Date.now()}-${generateId()}.${ext}`,
+            onUploaded: async (ctx, duration, url) => {
+                if (!ctx.groupId) { showSnackbar('请先选择群聊'); return; }
                 // v101: 统一 contents 协议——语音消息 audio 类型
-                const audioResult = await sendGroupMessageSecure(currentGroupId, {
+                const audioResult = await sendGroupMessageSecure(ctx.groupId, {
                     contents: buildContents('audio', { url: url, dur: duration }),
                     is_system: false
                 });
                 if (!audioResult.success) showSnackbar('发送语音失败: ' + (audioResult.message || ''));
                 else if (audioResult.message) {
-                    handleGroupMessage(currentGroupId, audioResult.message);
+                    handleGroupMessage(ctx.groupId, audioResult.message);
                     const mContainer = document.getElementById('publicMessages');
                     if (mContainer) { scrollToBottom(mContainer); updateScrollButton(mContainer); mContainer._userScrolledUp = false; }
                 }
@@ -165,14 +235,17 @@
         });
 
         const privateRecorder = createVoiceRecorder({
-            ids: { btn: 'privateRecordBtn', timer: 'privateRecordTimer', hint: 'privateRecordHint', stopBtn: 'privateRecordStopBtn' },
+            ids: { voiceBtn: 'privateVoiceBtn', voiceTip: 'privateVoiceTip', voiceTimer: 'privateVoiceTimer' },
+            scope: 'private',
             tooShortMsg: '录音时间太短',
-            makePath: (ext) => `private/${privateSessionId || 'unknown'}/files/${Date.now()}-${generateId()}.${ext}`,
-            onUploaded: async (duration, url) => {
+            // 录音开始时快照当前私聊会话，防止录音期间切换会话导致发错
+            getCtx: () => ({ privateId: privateSessionId }),
+            makePath: (ctx, ext) => `private/${ctx.privateId || 'unknown'}/files/${Date.now()}-${generateId()}.${ext}`,
+            onUploaded: async (ctx, duration, url) => {
                 // v101: 统一 contents 协议——语音消息 audio 类型
                 const content = buildContents('audio', { url: url, dur: duration });
                 try {
-                    const newMsg = await safeInsertPrivateMsg(privateSessionId, currentUser, content);
+                    const newMsg = await safeInsertPrivateMsg(ctx.privateId, currentUser, content);
                     appendPrivateMsgLocally(newMsg, false);
                 } catch (ie) {
                     const msg = ie.message || '';
@@ -181,10 +254,31 @@
             }
         });
 
-        function toggleRecording() { return publicRecorder.toggle(); }
-        function privateToggleRecording() { return privateRecorder.toggle(); }
+        // 语音模式开关（QQ 风格）：在「输入框行」与「按住说话行」之间切换，
+        // forceText 为 true 时强制切回文本输入（录音发送成功后调用）
+        function toggleVoiceMode(scope, forceText) {
+            const isPublic = scope === 'public';
+            const inputRow = document.getElementById(isPublic ? 'publicInputRow' : 'privateInputRow');
+            const voiceMode = document.getElementById(isPublic ? 'publicVoiceMode' : 'privateVoiceMode');
+            const footer = document.getElementById(isPublic ? 'publicInputFooter' : 'privateInputFooter');
+            if (!inputRow || !voiceMode) return;
+            const inVoice = !voiceMode.classList.contains('hidden');
+            if (inVoice || forceText) {
+                voiceMode.classList.add('hidden');
+                inputRow.classList.remove('hidden');
+                if (footer) footer.classList.remove('hidden');
+            } else {
+                // 进入语音模式时关闭表情浮窗
+                const popup = document.getElementById(isPublic ? 'publicEmojiPopup' : 'privateEmojiPopup');
+                if (popup) popup.classList.remove('show');
+                voiceMode.classList.remove('hidden');
+                inputRow.classList.add('hidden');
+                if (footer) footer.classList.add('hidden');
+            }
+            // 输入区高度变化，回到底部按钮需同步上移/下移
+            if (typeof updateAllScrollButtonPositions === 'function') updateAllScrollButtonPositions();
+        }
         let activeAudio = null;
-        let linkMode = 'public';
 
         let _notifyAudio = null;
         let _audioUnlocked = false;
@@ -349,27 +443,24 @@
         function togglePublicNotify() { return toggleNotifyMode('publicEnabled', '群聊消息提示音已开启', '群聊消息提示音已关闭'); }
         function togglePrivateNotify() { return toggleNotifyMode('privateEnabled', '私聊消息提示音已开启', '私聊消息提示音已关闭'); }
 
-        // 功能面板控制器工厂：公聊/私聊的常驻功能条、子面板（表情/文字特效/语音）、
-        // 表情插入、文字特效、图片/文件选择入口共用同一套逻辑，仅元素 id 与差异项不同。
-        // v090: 面板常驻平铺（桌面端），不再需要「+」按钮的展开/收起；closePanel 仅保留
-        // 关闭子面板语义，moreBtn 已移除故做空值保护。
+        // 功能面板控制器工厂：内联功能按钮（图片/文件/表情/语音/文字特效）、
+        // 表情浮窗、文字特效/语音子面板、表情插入、图片/文件选择入口共用同一套逻辑，
+        // 仅元素 id 与差异项不同。链接不再提供手动发送入口，由渲染端自动识别文本中的 URL。
         function createFeaturePanelController(cfg) {
             const el = id => document.getElementById(id);
             return {
                 closePanel: function() {
                     el(cfg.panelId).classList.remove('show');
-                    const btn = el(cfg.moreBtnId);
-                    if (btn) btn.classList.remove('active');
                     this.closeSubPanel();
                 },
                 closeSubPanel: function() {
                     if (cfg.recorder && cfg.recorder.state && cfg.recorder.state.recorder && cfg.recorder.state.recorder.state === 'recording') {
                         cfg.recorder.state.recorder.stop();
                     }
-                    el(cfg.emojiSubPanelId).classList.remove('active');
+                    // 关闭表情浮窗
+                    var popup = el(cfg.emojiPopupId);
+                    if (popup) popup.classList.remove('show');
                     el(cfg.textEffectSubPanelId).classList.remove('active');
-                    el(cfg.voiceSubPanelId).classList.remove('active');
-                    el(cfg.featurePanelMainId).style.display = 'block';
                 },
                 openImagePicker: function() {
                     if (cfg.closePanelOnPick) this.closePanel(); else this.closeSubPanel();
@@ -381,23 +472,34 @@
                 },
                 insertEmoji: function(emoji) {
                     const input = el(cfg.inputId);
-                    input.value += emoji;
+                    insertEmojiAtCursor(input, emoji);
                     autoResize(input);
                     cfg.toggleSendBtn();
                 },
                 openEmojiSubPanel: function() {
-                    el(cfg.featurePanelMainId).style.display = 'none';
-                    el(cfg.emojiSubPanelId).classList.add('active');
-                    // v091: 每次打开面板刷新自定义表情（新增/删除后保证最新）
-                    loadEmojiList(true);
+                    // 切换表情浮窗显示/隐藏
+                    var popup = el(cfg.emojiPopupId);
+                    if (!popup) return;
+                    var isOpen = popup.classList.contains('show');
+                    // 关闭文字特效子面板
+                    el(cfg.textEffectSubPanelId).classList.remove('active');
+                    if (isOpen) {
+                        popup.classList.remove('show');
+                    } else {
+                        popup.classList.add('show');
+                        // 每次打开刷新自定义表情
+                        loadEmojiList(true);
+                    }
                 },
                 openTextEffectSubPanel: function() {
-                    el(cfg.featurePanelMainId).style.display = 'none';
+                    // 关闭表情浮窗
+                    var popup = el(cfg.emojiPopupId);
+                    if (popup) popup.classList.remove('show');
                     el(cfg.textEffectSubPanelId).classList.add('active');
                 },
                 openVoiceSubPanel: function() {
-                    el(cfg.featurePanelMainId).style.display = 'none';
-                    el(cfg.voiceSubPanelId).classList.add('active');
+                    // 语音改为「按住说话」模式：切换输入框/语音行
+                    toggleVoiceMode(cfg.voiceScope);
                 },
                 applyTextEffect: function(tag) {
                     applyTextEffectTo(el(cfg.inputId), cfg.toggleSendBtn, tag);
@@ -406,19 +508,18 @@
         }
 
         const publicPanelCtrl = createFeaturePanelController({
-            panelId: 'publicFeaturePanel', moreBtnId: 'publicMoreBtn',
-            featurePanelMainId: 'featurePanelMain',
-            emojiSubPanelId: 'emojiSubPanel', textEffectSubPanelId: 'textEffectSubPanel', voiceSubPanelId: 'voiceSubPanel',
+            panelId: 'publicFeaturePanel',
+            featureInlineId: 'publicFeatureInline', emojiPopupId: 'publicEmojiPopup',
+            textEffectSubPanelId: 'textEffectSubPanel', voiceScope: 'public',
             emojiGridId: 'emojiGrid', inputId: 'publicMsgInput',
             imageInputId: 'imageInput', fileInputId: 'fileInput',
             recorder: publicRecorder, closePanelOnPick: false,
-            // v099: 群聊发送按钮开关
             toggleSendBtn: toggleGroupSendBtn
         });
         const privatePanelCtrl = createFeaturePanelController({
-            panelId: 'privateFeaturePanel', moreBtnId: 'privateMoreBtn',
-            featurePanelMainId: 'privateFeaturePanelMain',
-            emojiSubPanelId: 'privateEmojiSubPanel', textEffectSubPanelId: 'privateTextEffectSubPanel', voiceSubPanelId: 'privateVoiceSubPanel',
+            panelId: 'privateFeaturePanel',
+            featureInlineId: 'privateFeatureInline', emojiPopupId: 'privateEmojiPopup',
+            textEffectSubPanelId: 'privateTextEffectSubPanel', voiceScope: 'private',
             emojiGridId: 'privateEmojiGrid', inputId: 'privateMsgInput',
             imageInputId: 'privateImageInput', fileInputId: 'privateFileInput',
             recorder: privateRecorder, closePanelOnPick: false,
@@ -444,6 +545,19 @@
         function privateOpenTextEffectSubPanel() { privatePanelCtrl.openTextEffectSubPanel(); }
         function privateOpenVoiceSubPanel() { privatePanelCtrl.openVoiceSubPanel(); }
         function privateApplyTextEffect(tag) { privatePanelCtrl.applyTextEffect(tag); }
+
+        // 点击浮层/子面板外部时关闭（输入区内点击由各按钮 onclick 自行切换面板）
+        document.addEventListener('click', function(e) {
+            // 输入区（工具栏/输入框/底部）内点击不关闭
+            if (e.target.closest && e.target.closest('.chat-bar')) return;
+            // 浮层内部点击不关闭（返回按钮 onclick 自行关闭）
+            var floats = document.querySelectorAll('.emoji-popup.show, .feature-panel .sub-panel.active');
+            for (var i = 0; i < floats.length; i++) {
+                if (floats[i].contains(e.target)) return;
+            }
+            publicPanelCtrl.closeSubPanel();
+            privatePanelCtrl.closeSubPanel();
+        });
 
         // ==================== 自定义表情（v091） ====================
         // 用户级表情：上限 64，图片存 media/emoji/{uid}/（不在群文件白名单内，群文件不显示）。
@@ -501,7 +615,7 @@
                 const cq = _wrapEmojiCq(e);
                 html += '<div class="emoji-item-wrap" title="' + escapeAttr(e.name || '表情') + '">'
                     + '<button class="emoji-item" onclick="' + insertFnName + '(\'' + escapeJsString(cq) + '\')">'
-                    + '<img src="' + escapeAttr(e.url) + '" alt="[表情]" loading="lazy"></button>'
+                    + '<img src="' + escapeAttr(e.url) + '" alt="" loading="lazy"></button>'
                     + '<button class="emoji-del" onclick="deleteEmoji(\'' + escapeJsString(e.key) + '\')" title="删除表情">✕</button>'
                     + '</div>';
             }
@@ -731,7 +845,15 @@
                     for (const file of e.clipboardData.files) collect(file);
                 }
             }
-            if (imageFiles.length === 0) return; // 剪贴板中没有图片，不拦截默认粘贴
+            if (imageFiles.length === 0) {
+                // 剪贴板中没有图片：粘贴纯文本，避免 contenteditable 引入富文本标签
+                const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+                if (text) {
+                    e.preventDefault();
+                    insertTextAtCursor(e.currentTarget, text);
+                }
+                return;
+            }
 
             e.preventDefault();
             showConfirm('发送图片', `确认发送 ${imageFiles.length} 张图片吗？`, () => {
@@ -797,39 +919,14 @@
             showSnackbar('正在上传文件...');
             // v086: 上传+发送期间发送按钮禁用并显示加载动画
             setSendState('publicSendBtn', true);
-            const ext = file.name.split('.').pop() || 'file';
-            // v100: 群聊文件存储路径（目录式：groups/<gid>/files/）
-            const filePath = `groups/${currentGroupId}/files/${Date.now()}-${generateId()}.${ext}`;
-            // v089: try/finally 兜底——无论上传/发送是否抛错或挂起，发送按钮都必须恢复
+            // v104: 聊天输入框上传固定落在根目录（群文件页内上传可指定文件夹）
             try {
-                const url = await uploadToBucket(filePath, file, file.type || 'application/octet-stream');
-                if (!url) return;
-                const fileSize = (file.size / 1024).toFixed(1);
-                // v101: 统一 contents 协议——文件消息 file 类型
-                const ieResult = await sendGroupMessageSecure(currentGroupId, {
-                    contents: buildContents('file', { url: url, name: file.name, size: fileSize }),
-                    is_system: false
-                });
-                if (!ieResult.success) showSnackbar('发送文件失败: ' + (ieResult.message || ''));
-                else if (ieResult.message) handleGroupMessage(currentGroupId, ieResult.message);
+                await uploadGroupFileInto(file, '');
             } catch (e) { showSnackbar('上传失败'); }
             finally {
                 setSendState('publicSendBtn', false);
                 toggleGroupSendBtn();
             }
-        }
-
-        function openLinkDialog(mode) {
-            closeFeaturePanel();
-            linkMode = mode || 'public';
-            document.getElementById('linkDialog').classList.remove('hidden');
-            document.getElementById('linkText').focus();
-        }
-
-        function hideLinkDialog() {
-            document.getElementById('linkDialog').classList.add('hidden');
-            document.getElementById('linkText').value = '';
-            document.getElementById('linkUrl').value = '';
         }
 
         function showOpensourceDialog() {
@@ -840,62 +937,20 @@
             document.getElementById('opensourceDialog').classList.add('hidden');
         }
 
-        async function sendLink() {
-            const text = document.getElementById('linkText').value.trim();
-            const url = document.getElementById('linkUrl').value.trim();
-            if (!url) { showSnackbar('请输入链接地址'); return; }
-            if (!isSafeUrl(url)) { showSnackbar('链接地址无效，仅支持 http/https/mailto/tel'); return; }
-            const displayText = text || url;
-            // v101: 统一 contents 协议——链接消息走 richtext 类型（渲染端白名单清洗 <a>）
-            const linkContents = buildContents('richtext', {
-                content: `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(displayText)}</a>`
-            });
-            hideLinkDialog();
-
-            if (linkMode === 'private') {
-                try {
-                    const newMsg = await safeInsertPrivateMsg(privateSessionId, currentUser, linkContents);
-                    appendPrivateMsgLocally(newMsg, false);
-                } catch (e) {
-                    const msg = e.message || '';
-                    showSnackbar(msg.includes('隐私') || msg.includes('拒收') ? msg : '发送失败: ' + msg);
-                }
-            } else {
-                // v099: 群聊链接发送（替代原公聊）
-                if (!currentGroupId) { showSnackbar('请先选择群聊'); return; }
-                const linkResult = await sendGroupMessageSecure(currentGroupId, { contents: linkContents, is_system: false });
-                if (!linkResult.success) showSnackbar('发送链接失败: ' + (linkResult.message || ''));
-                else if (linkResult.message) handleGroupMessage(currentGroupId, linkResult.message);
-            }
-        }
-
         function applyTextEffectTo(input, toggleFn, tag) {
-            const start = input.selectionStart;
-            const end = input.selectionEnd;
-            if (start === end) { showSnackbar('请先选中文字'); return; }
-            const selected = input.value.substring(start, end);
-            let wrapped;
-            switch (tag) {
-                case 'b':
-                    wrapped = `<b>${selected}</b>`;
-                    break;
-                case 'i':
-                    wrapped = `<i>${selected}</i>`;
-                    break;
-                case 'u':
-                    wrapped = `<u>${selected}</u>`;
-                    break;
-                case 's':
-                    wrapped = `<s>${selected}</s>`;
-                    break;
-                default:
-                    wrapped = selected;
+            // contenteditable 输入框：对选中文本应用特效（execCommand 产生 b/i/u/s 标签）
+            const sel = window.getSelection();
+            if (!sel || !sel.rangeCount) { showSnackbar('请先选中文字'); return; }
+            const range = sel.getRangeAt(0);
+            if (range.collapsed || !input.contains(range.commonAncestorContainer)) {
+                showSnackbar('请先选中文字');
+                return;
             }
-            input.setRangeText(wrapped, start, end, 'end');
+            const cmd = tag === 'b' ? 'bold' : tag === 'i' ? 'italic' : tag === 'u' ? 'underline' : 'strikeThrough';
+            document.execCommand(cmd, false, null);
             autoResize(input);
             toggleFn();
-            const newPos = start + wrapped.length;
-            input.setSelectionRange(newPos, newPos);
+            input.focus();
         }
 
         function toggleVoicePlay(wrap, event) {
@@ -1053,6 +1108,8 @@
                 container.innerHTML = '<div class="empty">输入昵称开始搜索</div>';
                 return;
             }
+            // 网络搜索延迟时显示圆形加载动画（复用 md-circular-loader）
+            container.innerHTML = '<div class="search-loading"><span class="md-circular-loader"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span></div>';
             try {
                 let users = null;
                 try {
@@ -1098,11 +1155,16 @@
         }
 
         // ============================================================
-        // v100: 群文件：仅枚举当前群的群文件（groups/<gid>/files/），
-        // 排除私聊附件/头像/背景以及桶内配置、会话等敏感文件（后端同样强制过滤）
+        // v104: 群文件：支持文件夹（目录式 Key：groups/<gid>/files/{folderId}/{fileKey}，
+        // 根目录文件无 folderId 前缀）。文件夹列表来自 get_group_folders
+        // （groups/<gid>/folders.json）；文件按当前文件夹过滤（_currentFolderId，'' = 根目录）。
+        // 新建/重命名/删除文件夹、移动/删除文件需管理员或群主权限。
         // ============================================================
         function showGroupFiles() {
             if (!currentGroupId) { showSnackbar('请先选择群聊'); return; }
+            // 进入页面时回到根目录
+            _currentFolderId = '';
+            _currentFolderName = '';
             pushPageHistory('groupFiles');
             switchPage('groupFilesPage', true);
             _loadGroupFiles();
@@ -1111,6 +1173,9 @@
         // v073 性能优化：群文件列表短期缓存（TTL 30s，按群隔离），频繁进入页面时跳过重复的并行请求
         let _groupFilesCache = null;
         const _GROUP_FILES_TTL = 30 * 1000;
+        // v104: 当前浏览的文件夹（'' = 根目录）
+        let _currentFolderId = '';
+        let _currentFolderName = '';
 
         /** 字节数格式化 */
         function _fmtBytes(n) {
@@ -1130,6 +1195,26 @@
                 '</div>';
         }
 
+        /** v104: 从文件 Key 解析所属文件夹 id（'' = 根目录） */
+        function _folderIdOfKey(gid, key) {
+            const prefix = 'groups/' + gid + '/files/';
+            if (!key || key.indexOf(prefix) !== 0) return '';
+            const rest = key.slice(prefix.length);
+            const slash = rest.indexOf('/');
+            if (slash <= 0) return ''; // 根目录文件
+            return rest.slice(0, slash);
+        }
+
+        /** v104: 群文件夹面包屑 */
+        function _groupFilesCrumbHtml(folderName) {
+            let html = '<button class="gf-crumb-link" onclick="goGroupFolder(\'\', \'\')">全部文件</button>';
+            if (folderName) {
+                html += '<span class="gf-crumb-sep">/</span>';
+                html += '<span class="gf-crumb-current">' + escapeHtml(folderName) + '</span>';
+            }
+            return html;
+        }
+
         async function _loadGroupFiles(force) {
             const container = document.getElementById('groupFilesContainer');
             if (!container) return;
@@ -1141,14 +1226,19 @@
             }
             container.innerHTML = '<div style="display:flex;justify-content:center;padding:24px;"><span class="md-circular-loader"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span></div>';
             try {
-                const { data, error } = await s3.rpc('list_media', { p_prefix: `groups/${gid}/files/`, p_uid: currentUid, p_session_token: getSessionToken() });
-                if (error) {
-                    container.innerHTML = '<div class="gf-empty">加载失败: ' + (error.message || '未知错误') + '</div>';
+                // v104: 并行拉取文件列表 + 文件夹列表
+                const [mediaRes, folderRes] = await Promise.all([
+                    s3.rpc('list_media', { p_prefix: `groups/${gid}/files/`, p_uid: currentUid, p_session_token: getSessionToken() }),
+                    s3.rpc('get_group_folders', { p_group_id: gid, p_uid: currentUid, p_session_token: getSessionToken() })
+                ]);
+                if (mediaRes.error) {
+                    container.innerHTML = '<div class="gf-empty">加载失败: ' + (mediaRes.error.message || '未知错误') + '</div>';
                     return;
                 }
                 // v100.x: list_media 返回 { files, total_size, file_count, max_size }；兼容旧数组响应
+                const data = mediaRes.data;
                 const arr = Array.isArray(data) ? data : (data && Array.isArray(data.files) ? data.files : []);
-                const files = arr
+                const allFiles = arr
                     .filter(function(f) {
                         if (!f || !f.key) return false;
                         // 安全过滤：群文件仅展示当前群的「文件」（groups/<gid>/files/）。
@@ -1158,8 +1248,10 @@
                     .sort(function(a, b) {
                         return new Date(b.created_at) - new Date(a.created_at);
                     });
+                const folders = (folderRes && folderRes.data && Array.isArray(folderRes.data.folders)) ? folderRes.data.folders : [];
                 const resp = {
-                    files: files,
+                    files: allFiles,
+                    folders: folders,
                     total_size: Array.isArray(data) && data.length
                         ? data.reduce(function(s, f) { return s + (f.size || 0); }, 0)
                         : (data && data.total_size) || 0,
@@ -1172,20 +1264,46 @@
             }
         }
 
+        const _GF_FOLDER_ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>';
+
         function _renderGroupFiles(resp, gid) {
             const container = document.getElementById('groupFilesContainer');
             if (!container) return;
             const allFiles = (resp && resp.files) || [];
-            // v100.x: 管理员/群主可删除群文件
+            const folders = (resp && resp.folders) || [];
+            const folderId = _currentFolderId;
+            // v100.x: 管理员/群主可管理群文件与文件夹
             const isMod = currentGroupInfo && (currentGroupInfo.my_role === 'owner' || currentGroupInfo.my_role === 'admin');
+            const newBtn = document.getElementById('gfNewFolderBtn');
+            if (newBtn) newBtn.style.display = isMod ? '' : 'none';
+            const crumbEl = document.getElementById('groupFilesCrumb');
+            if (crumbEl) crumbEl.innerHTML = _groupFilesCrumbHtml(_currentFolderName);
+
             let html = _groupFilesUsageHtml(resp);
-            if (!allFiles.length) {
-                html += '<div class="gf-empty">暂无群文件</div>';
+            // 文件夹：仅根目录展示（后端文件夹为单层结构）
+            if (!folderId) {
+                for (let i = 0; i < folders.length; i++) {
+                    const fo = folders[i];
+                    html += '<div class="gf-file-item gf-folder-item" onclick="goGroupFolder(\'' + escapeJsString(fo.id) + '\', \'' + escapeJsString(fo.name) + '\')">';
+                    html += '<div class="gf-file-icon">' + _GF_FOLDER_ICON + '</div>';
+                    html += '<div class="gf-file-info"><div class="gf-file-name">' + escapeHtml(fo.name) + '</div>';
+                    html += '<div class="gf-file-meta">文件夹' + (fo.created_at ? ' · ' + new Date(fo.created_at).toLocaleDateString('zh-CN') : '') + '</div></div>';
+                    if (isMod) {
+                        html += '<button class="gf-file-del" onclick="event.stopPropagation();renameGroupFolder(\'' + escapeJsString(fo.id) + '\', \'' + escapeJsString(fo.name) + '\')">重命名</button>';
+                        html += '<button class="gf-file-del gf-del-danger" onclick="event.stopPropagation();deleteGroupFolder(\'' + escapeJsString(fo.id) + '\', \'' + escapeJsString(fo.name) + '\')">删除</button>';
+                    }
+                    html += '</div>';
+                }
+            }
+            // 当前文件夹内的文件
+            const hereFiles = allFiles.filter(function(f) { return _folderIdOfKey(gid, f.key) === folderId; });
+            if (!hereFiles.length && !(!folderId && folders.length)) {
+                html += '<div class="gf-empty">' + (folderId ? '此文件夹暂无文件' : '暂无群文件') + '</div>';
                 container.innerHTML = html;
                 return;
             }
-            for (let idx = 0; idx < allFiles.length; idx++) {
-                const file = allFiles[idx];
+            for (let idx = 0; idx < hereFiles.length; idx++) {
+                const file = hereFiles[idx];
                 const sizeStr = file.size ? _fmtBytes(file.size) : '';
                 const dateStr = file.created_at ? new Date(file.created_at).toLocaleDateString('zh-CN') : '';
                 const fileUrl = file.url || '';
@@ -1210,10 +1328,113 @@
                 html += '<div class="gf-file-meta">' + (sizeStr ? sizeStr + ' · ' : '') + dateStr + '</div></div>';
                 if (isMod) {
                     html += '<button class="gf-file-del" onclick="event.stopPropagation();deleteGroupFile(\'' + escapeJsString(file.key) + '\')">删除</button>';
+                    html += '<button class="gf-file-del gf-move-btn" onclick="event.stopPropagation();showGroupFolderPicker(\'' + escapeJsString(file.key) + '\')">移动</button>';
                 }
                 html += '</div>';
             }
             container.innerHTML = html;
+        }
+
+        /** v104: 进入群文件夹（folderId 为空 = 返回根目录） */
+        function goGroupFolder(folderId, folderName) {
+            _currentFolderId = folderId || '';
+            _currentFolderName = folderName || '';
+            _renderGroupFiles(_groupFilesCache ? _groupFilesCache.resp : { files: [], folders: [] }, currentGroupId);
+        }
+
+        /** v104: 新建群文件夹（管理员/群主） */
+        async function createGroupFolder() {
+            if (!currentGroupId) return;
+            const name = window.prompt('请输入文件夹名称（1-32 个字符）', '');
+            if (name === null) return;
+            const trimmed = name.trim();
+            if (!trimmed) { showSnackbar('文件夹名称不能为空'); return; }
+            try {
+                const { error } = await s3.rpc('create_group_folder', {
+                    p_uid: currentUid, p_session_token: getSessionToken(),
+                    p_group_id: currentGroupId, p_name: trimmed
+                });
+                if (error) { showSnackbar('创建失败: ' + (error.message || '未知错误')); return; }
+                showSnackbar('文件夹已创建');
+                _loadGroupFiles(true);
+            } catch (e) { showSnackbar('创建失败: ' + (e.message || '未知错误')); }
+        }
+
+        /** v104: 重命名群文件夹（管理员/群主） */
+        async function renameGroupFolder(folderId, folderName) {
+            if (!currentGroupId || !folderId) return;
+            const name = window.prompt('请输入新的文件夹名称（1-32 个字符）', folderName || '');
+            if (name === null) return;
+            const trimmed = name.trim();
+            if (!trimmed) { showSnackbar('文件夹名称不能为空'); return; }
+            try {
+                const { error } = await s3.rpc('rename_group_folder', {
+                    p_uid: currentUid, p_session_token: getSessionToken(),
+                    p_group_id: currentGroupId, p_folder_id: folderId, p_name: trimmed
+                });
+                if (error) { showSnackbar('重命名失败: ' + (error.message || '未知错误')); return; }
+                if (_currentFolderId === folderId) _currentFolderName = trimmed;
+                showSnackbar('已重命名');
+                _loadGroupFiles(true);
+            } catch (e) { showSnackbar('重命名失败: ' + (e.message || '未知错误')); }
+        }
+
+        /** v104: 删除群文件夹（管理员/群主，连同文件夹内文件一并删除） */
+        function deleteGroupFolder(folderId, folderName) {
+            if (!currentGroupId || !folderId) return;
+            showConfirm('删除文件夹', '确定删除文件夹「' + (folderName || '') + '」吗？文件夹内的全部文件将一并删除。', function() {
+                (async function() {
+                    try {
+                        const { error } = await s3.rpc('delete_group_folder', {
+                            p_uid: currentUid, p_session_token: getSessionToken(),
+                            p_group_id: currentGroupId, p_folder_id: folderId
+                        });
+                        if (error) { showSnackbar('删除失败: ' + (error.message || '未知错误')); return; }
+                        if (_currentFolderId === folderId) { _currentFolderId = ''; _currentFolderName = ''; }
+                        showSnackbar('文件夹已删除');
+                        _loadGroupFiles(true);
+                    } catch (e) { showSnackbar('删除失败: ' + (e.message || '未知错误')); }
+                })();
+            });
+        }
+
+        /** v104: 移动文件——弹出文件夹选择器（根目录 + 除当前文件夹外的全部文件夹） */
+        function showGroupFolderPicker(key) {
+            const folders = (_groupFilesCache && _groupFilesCache.resp && _groupFilesCache.resp.folders) || [];
+            const c = document.getElementById('gfPickerContainer');
+            if (!c) return;
+            let html = '<div class="gf-picker-item" onclick="moveGroupFileTo(\'' + escapeJsString(key) + '\', \'\')">';
+            html += '<div class="gf-file-icon">' + _GF_FOLDER_ICON + '</div>';
+            html += '<div class="gf-file-info"><div class="gf-file-name">根目录</div></div></div>';
+            for (let i = 0; i < folders.length; i++) {
+                const fo = folders[i];
+                if (fo.id === _currentFolderId) continue;
+                html += '<div class="gf-picker-item" onclick="moveGroupFileTo(\'' + escapeJsString(key) + '\', \'' + escapeJsString(fo.id) + '\')">';
+                html += '<div class="gf-file-icon">' + _GF_FOLDER_ICON + '</div>';
+                html += '<div class="gf-file-info"><div class="gf-file-name">' + escapeHtml(fo.name) + '</div></div></div>';
+            }
+            c.innerHTML = html;
+            document.getElementById('gfMoveDialog').classList.remove('hidden');
+        }
+
+        function closeGroupFolderPicker() {
+            const d = document.getElementById('gfMoveDialog');
+            if (d) d.classList.add('hidden');
+        }
+
+        /** v104: 移动群文件到目标文件夹（targetFolderId 为空 = 根目录） */
+        async function moveGroupFileTo(key, targetFolderId) {
+            closeGroupFolderPicker();
+            if (!currentGroupId || !key) return;
+            try {
+                const { error } = await s3.rpc('move_group_file', {
+                    p_uid: currentUid, p_session_token: getSessionToken(),
+                    p_group_id: currentGroupId, p_key: key, p_target_folder_id: targetFolderId
+                });
+                if (error) { showSnackbar('移动失败: ' + (error.message || '未知错误')); return; }
+                showSnackbar('已移动');
+                _loadGroupFiles(true);
+            } catch (e) { showSnackbar('移动失败: ' + (e.message || '未知错误')); }
         }
 
         /** v100.x: 删除群文件（管理员/群主），删除后刷新列表与用量 */
@@ -1233,6 +1454,37 @@
             } catch (e) {
                 showSnackbar('删除失败: ' + (e.message || '未知错误'));
             }
+        }
+
+        /** v104: 群文件页内上传文件到当前文件夹（folderId 为空 = 根目录） */
+        async function handleGroupFilesUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            event.target.value = '';
+            await uploadGroupFileInto(file, _currentFolderId);
+        }
+
+        /** v104: 上传文件到群（folderId 为空 = 根目录），成功后发送群消息 */
+        async function uploadGroupFileInto(file, folderId) {
+            const sizeErr = fileSizeError(file, MAX_FILE_SIZE, '文件');
+            if (sizeErr) { showSnackbar(sizeErr); return; }
+            if (!currentGroupId) { showSnackbar('请先选择群聊'); return; }
+            showSnackbar('正在上传文件...');
+            const ext = file.name.split('.').pop() || 'file';
+            // v104: 目录式 Key——文件夹内文件带 folderId 前缀
+            const filePath = 'groups/' + currentGroupId + '/files/' + (folderId ? folderId + '/' : '') + Date.now() + '-' + generateId() + '.' + ext;
+            try {
+                const url = await uploadToBucket(filePath, file, file.type || 'application/octet-stream');
+                if (!url) return;
+                const fileSize = (file.size / 1024).toFixed(1);
+                // v101: 统一 contents 协议——文件消息 file 类型
+                const ieResult = await sendGroupMessageSecure(currentGroupId, {
+                    contents: buildContents('file', { url: url, name: file.name, size: fileSize }),
+                    is_system: false
+                });
+                if (!ieResult.success) showSnackbar('发送文件失败: ' + (ieResult.message || ''));
+                else if (ieResult.message) handleGroupMessage(currentGroupId, ieResult.message);
+            } catch (e) { showSnackbar('上传失败'); }
         }
 
         function closeAgentList() {
@@ -1266,7 +1518,8 @@
             if (!input) return;
             if (activeAgent && activeAgent.id === agentId) {
                 activeAgent = null;
-                input.value = input.value.replace(/@[\w\u4e00-\u9fa5]+\s?/, '').trim();
+                // 移除光标前的 @智能体 文本（光标不在文本节点时兜底清空）
+                if (!replaceMentionText(input, '')) clearInput(input);
                 autoResize(input);
                 toggleGroupSendBtn();
                 showSnackbar('已取消智能体');
@@ -1274,9 +1527,9 @@
             }
             const agentName = await getAgentName(agentId);
             activeAgent = { id: agentId, name: agentName };
-            input.value = `@${agentName} `;
+            clearInput(input);
+            insertTextAtCursor(input, `@${agentName} `);
             input.focus();
-            input.setSelectionRange(input.value.length, input.value.length);
             autoResize(input);
             toggleGroupSendBtn();
             showSnackbar(`已选择 ${agentName}，输入消息后发送`);

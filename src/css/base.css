@@ -56,10 +56,11 @@ body {
 }
 
 .page {
+    position: relative;
     display: none;
     flex-direction: column;
     height: 100%;
-    overflow: hidden;
+    overflow: visible;
     background: var(--md-surface);
 }
 
@@ -107,70 +108,125 @@ body {
 .av-7 { background: var(--md-avatar-7); }
 
 /* --- 表单组件 --- */
-/* 通用 Material 按钮：contained 实心 / text 文字 */
+/* 通用 Material 3 按钮：contained 实心 / text 文字 / primary / danger */
 .md-button {
     position: relative;
-    height: 48px;
+    height: 40px;
     padding: 0 24px;
     border: none;
-    border-radius: var(--radius-xl);
+    border-radius: var(--radius-full);
     overflow: hidden;
     font-family: inherit;
     font-size: 0.875rem;
     font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    letter-spacing: 0.1px;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
 }
 
-.md-button.contained {
+/* MD3 实心按钮无投影，层级用状态层表达 */
+.md-button.contained,
+.md-button.primary,
+.md-button.danger {
     background: var(--md-primary);
     color: var(--md-on-primary);
-    box-shadow: var(--md-elevation-2);
 }
 
-.md-button.contained:hover {
-    filter: brightness(1.08);
-    box-shadow: var(--md-elevation-4);
+.md-button.danger {
+    background: var(--md-error);
+    color: var(--md-on-error);
 }
 
-.md-button.contained:active {
-    transform: scale(0.98);
+.md-button.contained:hover,
+.md-button.primary:hover {
+    box-shadow: inset 0 0 0 999px var(--md-btn-state-hover);
+}
+
+.md-button.contained:active,
+.md-button.primary:active {
+    box-shadow: inset 0 0 0 999px var(--md-btn-state-active);
+}
+
+.md-button.danger:hover {
+    box-shadow: inset 0 0 0 999px var(--md-btn-state-hover);
+}
+
+.md-button.danger:active {
+    box-shadow: inset 0 0 0 999px var(--md-btn-state-active);
 }
 
 .md-button.text {
     background: transparent;
     color: var(--md-primary);
+    padding: 0 12px;
 }
 
 .md-button.text:hover {
-    background: var(--md-primary-container);
+    box-shadow: inset 0 0 0 999px var(--md-btn-text-hover);
 }
 
-/* Material 文本框：浮动标签（placeholder-shown 控制） */
+.md-button.text:active {
+    box-shadow: inset 0 0 0 999px var(--md-btn-text-active);
+}
+
+.md-button:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
+}
+
+.md-button:disabled {
+    opacity: 0.38;
+    cursor: default;
+    box-shadow: none;
+    filter: none;
+    pointer-events: none;
+}
+
+/* Material 3 文本框（filled 形态：顶部圆角 4dp）：浮动标签（placeholder-shown 控制） */
 .md-text-field {
     position: relative;
 }
 
-.md-text-field input {
+.md-text-field input,
+.md-text-field textarea,
+.md-input,
+.md-textarea {
     width: 100%;
     height: 56px;
     padding: 0 16px;
     border: var(--md-outline-width) var(--md-outline-style) var(--md-field-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-xs);
     outline: none;
     background: var(--md-surface-container-lowest);
     font-family: inherit;
-    font-size: 0.9375rem;
+    font-size: 1rem;
     color: var(--md-on-surface);
     transition: border-color 0.2s, padding 0.2s;
 }
 
+.md-text-field textarea,
+.md-textarea,
+textarea.md-input {
+    height: auto;
+    min-height: 56px;
+    padding: 14px 16px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
 /* 聚焦态使用强调描边令牌，主题可整体定制 */
-.md-text-field input:focus {
+.md-text-field input:focus,
+.md-text-field textarea:focus,
+.md-input:focus,
+.md-textarea:focus {
     border: var(--md-focus-border);
     padding: 0 15px;
+}
+
+.md-text-field textarea:focus,
+.md-textarea:focus,
+textarea.md-input:focus {
+    padding: 13px 15px;
 }
 
 .md-text-field label {
@@ -180,7 +236,7 @@ body {
     padding: 0 4px;
     background: var(--md-background);
     color: var(--md-on-surface-variant);
-    font-size: 0.9375rem;
+    font-size: 1rem;
     pointer-events: none;
     transform: translateY(-50%);
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -193,6 +249,19 @@ body {
     color: var(--md-primary);
 }
 
+/* 多行文本域：标签置于左上角，聚焦/填充后上浮 */
+.md-text-field textarea+label {
+    top: 14px;
+    transform: none;
+}
+
+.md-text-field textarea:focus+label,
+.md-text-field textarea:not(:placeholder-shown)+label {
+    top: 0;
+    font-size: 0.75rem;
+    color: var(--md-primary);
+}
+
 /* 极简下划线输入框（登录/注册页） */
 .wc-input {
     position: relative;
@@ -200,7 +269,7 @@ body {
 
 .wc-input input {
     width: 100%;
-    height: 48px;
+    height: 56px;
     padding: 0 4px;
     border: none;
     border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-field-border);
@@ -221,30 +290,66 @@ body {
     border-bottom: var(--md-focus-border);
 }
 
+.wc-input input:disabled {
+    color: var(--md-on-surface-variant);
+    border-bottom-color: var(--md-outline-variant);
+    cursor: default;
+}
+
 .wc-btn {
     align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     width: 200px;
-    height: 46px;
+    height: 40px;
     margin-top: 16px;
     border: none;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-full);
     background: var(--md-primary);
     font-family: inherit;
-    font-size: 1rem;
+    font-size: 0.875rem;
     font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
-    letter-spacing: 0.06em;
+    letter-spacing: 0.1px;
     color: var(--md-on-primary);
     cursor: pointer;
-    transition: background 0.2s, transform 0.1s;
+    transition: box-shadow 0.2s, background 0.2s, transform 0.1s;
 }
 
 .wc-btn:hover {
-    background: var(--md-primary-container);
+    box-shadow: inset 0 0 0 999px var(--md-btn-state-hover);
 }
 
 .wc-btn:active {
-    filter: brightness(0.85);
-    transform: scale(0.98);
+    box-shadow: inset 0 0 0 999px var(--md-btn-state-active);
+}
+
+.wc-btn:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
+}
+
+.wc-btn:disabled {
+    opacity: 0.38;
+    cursor: default;
+    pointer-events: none;
+}
+
+/* 按钮内加载动画（注册等网络操作）：圆形动画复用 md-circular-loader */
+.wc-btn-spin {
+    display: inline-flex;
+    align-items: center;
+}
+
+.wc-btn .md-circular-loader {
+    width: 18px;
+    height: 18px;
+}
+
+.wc-btn .md-circular-loader svg {
+    width: 18px;
+    height: 18px;
 }
 
 /* --- 加载态 --- */
@@ -372,4 +477,13 @@ body {
     to {
         opacity: 1;
     }
+}
+
+/* ==========================================================================
+   全局键盘聚焦可见性兜底（MD3 焦点指示）
+   任何通过键盘聚焦的可交互元素都必须有可见指示。
+   各组件已有的专属 :focus-visible 规则特异性更高，不受影响。 */
+:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
 }
