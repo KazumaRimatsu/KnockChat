@@ -984,9 +984,15 @@
     function quitCurrentGroup() {
         if (!currentGroupId) return;
         var gid = currentGroupId;
+        // v103: 群主退出即解散群聊，需明确告知不可恢复
+        var isOwner = !!(typeof currentGroupInfo !== 'undefined' && currentGroupInfo && currentGroupInfo.my_role === 'owner');
+        var title = isOwner ? '解散群聊' : '退出群聊';
+        var msg = isOwner
+            ? '你是群主，退出后该群聊将被解散，群内消息与文件将全部删除且不可恢复。确定解散？'
+            : '确定退出该群聊？退出后需重新接受邀请才能加入。';
         if (typeof showConfirm === 'function') {
-            showConfirm('退出群聊', '确定退出该群聊？退出后需重新接受邀请才能加入。', function() { doQuitGroup(gid); });
-        } else if (window.confirm('确定退出该群聊？')) {
+            showConfirm(title, msg, function() { doQuitGroup(gid); });
+        } else if (window.confirm(msg)) {
             doQuitGroup(gid);
         }
     }
@@ -1000,7 +1006,7 @@
             });
             if (error) { showSnackbar('操作失败: ' + error.message); return; }
             if (!data || data.success === false) { showSnackbar((data && data.message) || '操作失败'); return; }
-            showSnackbar('已退出群聊');
+            showSnackbar(data.dissolved ? '群聊已解散' : '已退出群聊');
             // 清理本地状态并返回
             if (typeof leaveGroupChat === 'function') leaveGroupChat();
             if (typeof groupUnreadByGid !== 'undefined') { delete groupUnreadByGid[gid]; }

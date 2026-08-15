@@ -1060,6 +1060,11 @@
             var isMod = !!(currentGroupInfo && (currentGroupInfo.my_role === 'owner' || currentGroupInfo.my_role === 'admin'));
             var manageItem = document.getElementById('publicMenuManageItem');
             if (manageItem) manageItem.style.display = isMod ? '' : 'none';
+            // v103: 群主退出即解散群聊，菜单文案随之切换
+            var quitLabel = document.getElementById('publicMenuQuitLabel');
+            if (quitLabel) {
+                quitLabel.textContent = (currentGroupInfo && currentGroupInfo.my_role === 'owner') ? '解散群聊' : '退出群聊';
+            }
         }
 
         let privateBlockedStatus = false;

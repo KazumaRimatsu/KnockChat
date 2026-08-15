@@ -893,7 +893,7 @@
                     <li onclick="closePublicMenu();showGroupFiles();"><svg viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>群文件</li>
                     <!-- v102: 群管理（管理员/群主）：全体禁言；群主：清空群消息、群转让 -->
                     <li id="publicMenuManageItem" style="display:none;" onclick="closePublicMenu();openGroupManageDialog();"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>群管理</li>
-                    <li class="logout-item" onclick="closePublicMenu();quitCurrentGroup();"><svg viewBox="0 0 24 24"><use href="#icon-block" xlink:href="#icon-block"/></svg>退出群聊</li>
+                    <li class="logout-item" onclick="closePublicMenu();quitCurrentGroup();"><svg viewBox="0 0 24 24"><use href="#icon-block" xlink:href="#icon-block"/></svg><span id="publicMenuQuitLabel">退出群聊</span></li>
                 </ul>
             </div>
         </div>
