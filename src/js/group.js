@@ -9,6 +9,8 @@
     // ==================== 状态 ====================
     var _selected = {};          // 建群弹窗：已选好友 {uid:true}
     var _inviteSelected = {};    // 邀请好友弹窗：已选 {uid:true}
+    var _inviteBotSelected = {}; // 邀请好友弹窗：已选机器人 {uid:true}
+    var _inviteBots = [];        // 当前用户拥有的机器人列表缓存
     var _cgAvatarUrl = '';       // 建群弹窗已上传头像 URL
     var _invites = [];           // 收到的群邀请缓存
     var _invitesLoaded = false;
@@ -76,7 +78,8 @@
     }
 
     // 勾选列表事件绑定（change 委托，更新对应选中集合与计数）
-    function bindMemberCheckChange(containerId, map, countId) {
+    // countFn 可选：自定义计数函数（如邀请弹窗需合并好友+机器人计数）；默认更新 countId 文本
+    function bindMemberCheckChange(containerId, map, countId, countFn) {
         var c = el(containerId);
         if (!c || c._memberBound) return;
         c._memberBound = true;
@@ -85,6 +88,7 @@
             if (!cb || !cb.classList || !cb.classList.contains('cg-member-check')) return;
             var fuid = cb.dataset.uid;
             if (cb.checked) map[fuid] = true; else delete map[fuid];
+            if (typeof countFn === 'function') { countFn(); return; }
             var n = Object.keys(map).length;
             var ce = el(countId);
             if (ce) ce.textContent = '已选 ' + n + ' 人';
@@ -95,6 +99,77 @@
         var n = Object.keys(_selected).length;
         var ce = el('cgMemberCount');
         if (ce) ce.textContent = '已选 ' + n + ' 人';
+    }
+
+    // ==================== 邀请弹窗 Tab 切换 ====================
+
+    function switchInviteTab(tab) {
+        var friendsTab = el('gifTabFriends');
+        var botsTab = el('gifTabBots');
+        var friendsPanel = el('gifFriendsPanel');
+        var botsPanel = el('gifBotsPanel');
+        if (tab === 'bots') {
+            if (friendsTab) friendsTab.classList.remove('active');
+            if (botsTab) botsTab.classList.add('active');
+            if (friendsPanel) friendsPanel.style.display = 'none';
+            if (botsPanel) botsPanel.style.display = '';
+            _updateInviteCount();
+        } else {
+            if (botsTab) botsTab.classList.remove('active');
+            if (friendsTab) friendsTab.classList.add('active');
+            if (botsPanel) botsPanel.style.display = 'none';
+            if (friendsPanel) friendsPanel.style.display = '';
+            _updateInviteCount();
+        }
+    }
+
+    function _updateInviteCount() {
+        var n = Object.keys(_inviteSelected).length + Object.keys(_inviteBotSelected).length;
+        var ce = el('gifMemberCount');
+        if (ce) ce.textContent = '已选 ' + n + ' 人';
+    }
+
+    // 加载并渲染机器人勾选列表（邀请好友弹窗内 Tab）
+    function _loadInviteBots(callback) {
+        if (!currentUid) { _inviteBots = []; if (callback) callback(); return; }
+        s3.rpc('get_my_bots', { p_uid: currentUid, p_session_token: token() }).then(function(res) {
+            _inviteBots = (res && res.data && Array.isArray(res.data.bots)) ? res.data.bots.filter(function(b) { return b.status === 'normal'; }) : [];
+            if (callback) callback();
+        }).catch(function() { _inviteBots = []; if (callback) callback(); });
+    }
+
+    function renderBotCheckList(containerId, map) {
+        var c = el(containerId);
+        if (!c) return;
+        if (!_inviteBots.length) {
+            c.innerHTML = '<div class="empty">暂无可用的机器人，请先在「Golem」中申请</div>';
+            return;
+        }
+        c.innerHTML = _inviteBots.map(function(b) {
+            var buid = String(b.uid);
+            var checked = map[buid] ? ' checked' : '';
+            var avHtml = b.avatar_url
+                ? '<div class="av" style="background-image:url(\'' + escapeAttr(b.avatar_url) + '\');background-size:cover;background-position:center;"></div>'
+                : '<div class="av av-' + (hashStr(b.username || '') % 8) + '">' + escapeHtml((b.username || 'G').charAt(0).toUpperCase()) + '</div>';
+            return '<label class="cg-member-item">' +
+                avHtml +
+                '<span class="cg-member-name">' + escapeHtml(b.username || '未知') + ' <span class="gif-bot-tag">Bot</span></span>' +
+                '<input type="checkbox" class="cg-member-check" data-uid="' + escapeAttr(buid) + '"' + checked + '>' +
+                '</label>';
+        }).join('');
+    }
+
+    function bindBotCheckChange(containerId, map) {
+        var c = el(containerId);
+        if (!c || c._botBound) return;
+        c._botBound = true;
+        c.addEventListener('change', function(e) {
+            var cb = e.target;
+            if (!cb || !cb.classList || !cb.classList.contains('cg-member-check')) return;
+            var buid = cb.dataset.uid;
+            if (cb.checked) map[buid] = true; else delete map[buid];
+            _updateInviteCount();
+        });
     }
 
     // ==================== 创建群聊 ====================
@@ -828,10 +903,18 @@
         if (!currentGroupId) { showSnackbar('请先进入群聊'); return; }
         try { if (window.friendModule && typeof window.friendModule.ensureLoaded === 'function') window.friendModule.ensureLoaded(); } catch (e) { /* ignore */ }
         _inviteSelected = {};
+        _inviteBotSelected = {};
         var ce = el('gifMemberCount');
         if (ce) ce.textContent = '已选 0 人';
-        renderMemberCheckList('gifMemberList', _inviteSelected, '暂无可邀请的好友，请先添加好友');
-        bindMemberCheckChange('gifMemberList', _inviteSelected, 'gifMemberCount');
+        renderMemberCheckList('gifFriendList', _inviteSelected, '暂无可邀请的好友，请先添加好友');
+        bindMemberCheckChange('gifFriendList', _inviteSelected, 'gifMemberCount', _updateInviteCount);
+        // 重置 Tab 到「好友」
+        switchInviteTab('friends');
+        // 异步加载机器人列表并渲染（Tab 已就绪，用户可先看好友）
+        _loadInviteBots(function() {
+            renderBotCheckList('gifBotList', _inviteBotSelected);
+            bindBotCheckChange('gifBotList', _inviteBotSelected);
+        });
         var d = el('groupInviteFriendsDialog');
         if (d) d.classList.remove('hidden');
     }
@@ -841,17 +924,19 @@
         if (d) d.classList.add('hidden');
     }
 
-    // 发送邀请：逐人调用 send_group_invite，汇总结果
+    // 发送邀请：好友走 send_group_invite，机器人走 bot_add_group（直接加入）
     async function submitGroupInviteFriends() {
         if (_sendingInvite) return;
         if (!currentGroupId) { showSnackbar('请先进入群聊'); return; }
         var uids = Object.keys(_inviteSelected).map(Number);
-        if (!uids.length) { showSnackbar('请至少选择 1 位好友'); return; }
+        var botUids = Object.keys(_inviteBotSelected).map(Number);
+        if (!uids.length && !botUids.length) { showSnackbar('请至少选择 1 项'); return; }
         _sendingInvite = true;
         var btn = el('gifSendBtn');
-        if (btn) { btn.disabled = true; btn.textContent = '发送中...'; }
+        if (btn) { btn.disabled = true; btn.textContent = '操作中...'; }
         var ok = 0, fail = 0, firstErr = '';
         try {
+            // 好友邀请（走邀请流程）
             for (var i = 0; i < uids.length; i++) {
                 var { data, error } = await s3.rpc('send_group_invite', {
                     p_uid: myUid(),
@@ -867,18 +952,36 @@
                     ok++;
                 }
             }
+            // 机器人入群（直接加入，无需邀请确认）
+            for (var j = 0; j < botUids.length; j++) {
+                var res = await s3.rpc('bot_add_group', {
+                    p_uid: myUid(),
+                    p_session_token: token(),
+                    p_bot_uid: botUids[j],
+                    p_gid: currentGroupId
+                });
+                if (res.error || !res.data || res.data.success === false) {
+                    fail++;
+                    if (!firstErr) firstErr = ((res.data && res.data.message) || (res.error && res.error.message) || '添加失败');
+                } else {
+                    ok++;
+                }
+            }
         } catch (e) {
             fail++;
-            if (!firstErr) firstErr = (e && e.message) || '发送失败';
+            if (!firstErr) firstErr = (e && e.message) || '操作失败';
         } finally {
             _sendingInvite = false;
-            if (btn) { btn.disabled = false; btn.textContent = '发送邀请'; }
+            if (btn) { btn.disabled = false; btn.textContent = '确定'; }
         }
         closeGroupInviteFriendsDialog();
         if (ok > 0) {
-            showSnackbar(ok + ' 条邀请已发送' + (fail > 0 ? '，' + fail + ' 条失败' : ''));
+            var parts = [];
+            if (uids.length) parts.push(ok + ' 条邀请已发送');
+            if (botUids.length) parts.push(botUids.length + ' 个机器人已入群');
+            showSnackbar(parts.join('，') + (fail > 0 ? '，' + fail + ' 条失败' : ''));
         } else {
-            showSnackbar(firstErr || '邀请发送失败');
+            showSnackbar(firstErr || '操作失败');
         }
     }
 
@@ -923,6 +1026,7 @@
     function reset() {
         _selected = {};
         _inviteSelected = {};
+        _inviteBotSelected = {};
         _cgAvatarUrl = '';
         _invites = [];
         _invitesLoaded = false;
@@ -962,6 +1066,7 @@
     window.openGroupInviteFriendsDialog = openGroupInviteFriendsDialog;
     window.closeGroupInviteFriendsDialog = closeGroupInviteFriendsDialog;
     window.submitGroupInviteFriends = submitGroupInviteFriends;
+    window.switchInviteTab = switchInviteTab;
     window.quitCurrentGroup = quitCurrentGroup;
     window.openGroupInfoEdit = openGroupInfoEdit;
     window.closeGroupInfoEditDialog = closeGroupInfoEditDialog;

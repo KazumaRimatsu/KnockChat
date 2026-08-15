@@ -264,14 +264,16 @@ class Store:
         data = self.rpc("get_update_info", {})
         return data.get("update")
 
-    def publish_update(self, version, filepath, notes=""):
+    def publish_update(self, version, os_name, filepath, notes=""):
         """推送更新包：安装包 base64 经管理 API 上传（服务端写入元数据并自动清理旧版本）。
+        os_name: windows/macos/linux，同一版本各平台可分别推送独立安装包。
         返回 (安装包 key, 元数据 dict)。"""
         with open(filepath, "rb") as f:
             data = f.read()
         b64 = base64.b64encode(data).decode("ascii")
         res = self.rpc("publish_update", {
             "version": int(version),
+            "os": os_name,
             "base64": b64,
             "filename": os.path.basename(filepath),
             "notes": notes,
@@ -467,18 +469,29 @@ class App:
         ttk.Entry(row2, textvariable=self.upd_file, width=56).pack(side="left", padx=4)
         ttk.Button(row2, text="浏览…", command=self._pick_update_file).pack(side="left")
 
+        row_os = ttk.Frame(form)
+        row_os.pack(fill="x", pady=2)
+        ttk.Label(row_os, text="操作系统：").pack(side="left")
+        self.upd_os = tk.StringVar(value="windows")
+        ttk.Combobox(row_os, textvariable=self.upd_os,
+                     values=("windows", "macos", "linux"), state="readonly", width=12).pack(side="left", padx=4)
+        ttk.Label(row_os, text="windows → .exe/.msi；macos → .dmg；linux → .AppImage/.deb",
+                  foreground="#999").pack(side="left")
+
         ttk.Label(form, text="更新说明：").pack(anchor="w", pady=(4, 0))
         self.upd_notes = tk.Text(form, height=5, width=80)
         self.upd_notes.pack(fill="x", pady=(2, 4))
 
         ttk.Button(form, text="推送到存储桶", command=self.on_publish_update).pack(anchor="w")
-        ttk.Label(form, text="提示：客户端在「关于」页点击「检查更新」即可看到新版本并下载安装包。",
+        ttk.Label(form, text="提示：同一版本可分别推送各平台安装包；客户端在「关于」页点击「检查更新」\n"
+                  "即可看到对应自己系统的版本并下载安装包。",
                   foreground="#999").pack(anchor="w", pady=(4, 0))
 
     def _pick_update_file(self):
         path = tkinter.filedialog.askopenfilename(
             title="选择安装包",
-            filetypes=[("安装包", "*.exe *.msi *.zip"), ("所有文件", "*.*")])
+            filetypes=[("安装包", "*.exe *.msi *.dmg *.app *.AppImage *.deb *.zip"),
+                       ("所有文件", "*.*")])
         if path:
             self.upd_file.set(path)
 
@@ -489,21 +502,32 @@ class App:
         if not info:
             self.update_info_var.set("存储桶中暂无更新元数据（upd/latest.json 不存在），可直接推送新版本。")
             return
-        ver = info.get("version", 0)
-        sha = info.get("sha256") or "-"
         try:
-            ver = int(ver)
+            ver = int(info.get("version", 0))
         except (TypeError, ValueError):
             ver = 0
+        packages = info.get("packages")
+        if packages and isinstance(packages, dict):
+            parts = []
+            for os_name in ("windows", "macos", "linux"):
+                pkg = packages.get(os_name)
+                if not pkg or not isinstance(pkg, dict):
+                    continue
+                fn = pkg.get("filename") or "-"
+                sz = fmt_size(pkg.get("size") or 0)
+                sha = str(pkg.get("sha256") or "-")[:16]
+                parts.append(f"{os_name}: {fn}（{sz}，SHA256 {sha}…）")
+            pkg_text = "；".join(parts) if parts else "（暂无平台安装包）"
+        else:
+            pkg_text = f"文件：{info.get('filename') or '-'}（{fmt_size(info.get('size') or 0)}）"
         self.update_info_var.set(
-            f"当前推送：v{ver:03d} | 文件：{info.get('filename') or '-'} | "
-            f"大小：{fmt_size(info.get('size') or 0)} | 发布时间：{fmt_time(info.get('published_at') or '')} | "
-            f"SHA256：{sha[:16]}…")
+            f"当前推送：v{ver:03d} | 发布时间：{fmt_time(info.get('published_at') or '')}\n{pkg_text}")
 
     def on_publish_update(self):
         ver_text = self.upd_version.get().strip()
         path = self.upd_file.get().strip()
         notes = self.upd_notes.get("1.0", "end").strip()
+        os_name = self.upd_os.get() or "windows"
         if not ver_text.isdigit():
             tkinter.messagebox.showwarning("提示", "版本号必须为整数（与客户端 KERNEL_VERSION 一致）")
             return
@@ -513,19 +537,23 @@ class App:
         version = int(ver_text)
         ext = os.path.splitext(path)[1] or ""
         new_name = f"KnockChat_v{version:03d}{ext}"
-        if not self.confirm(f"确认推送更新包 v{version:03d}？\n"
+        if not self.confirm(f"确认推送更新包 v{version:03d}（{os_name}）？\n"
                             f"安装包将自动命名为：{new_name}\n"
+                            f"同一版本可分别推送 windows/macos/linux 三个平台的安装包；\n"
                             f"推送后仅保留最新 3 个版本，更旧的安装包会被自动删除。\n"
                             f"客户端「检查更新」即可看到并下载。"):
             return
-        self._bg(lambda: self.store.publish_update(version, path, notes),
+        self._bg(lambda: self.store.publish_update(version, os_name, path, notes),
                  self._after_publish_update)
 
     def _after_publish_update(self, result):
         key, meta = result
-        self.log(f"更新包已推送：{key}（v{meta['version']:03d}）")
-        self.update_info_var.set(f"推送成功：v{meta['version']:03d}，文件 {meta['filename']}")
-        # 推送成功后清空表单，便于下次输入
+        os_name = self.upd_os.get() or "windows"
+        pkg = ((meta.get("packages") or {}).get(os_name)) or {}
+        filename = pkg.get("filename") or meta.get("filename") or "-"
+        self.log(f"更新包已推送：{key}（v{meta['version']:03d} {os_name}）")
+        self.update_info_var.set(f"推送成功：v{meta['version']:03d}（{os_name}），文件 {filename}")
+        # 推送成功后清空表单，便于下次输入（保留系统选择，便于同版本补推其他平台）
         self.upd_version.set("")
         self.upd_file.set("")
         self.upd_notes.delete("1.0", "end")

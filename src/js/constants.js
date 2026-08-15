@@ -20,9 +20,21 @@
         // 服务端 API 地址：打包前请替换为实际部署的 Worker 地址
         //（也可在应用内 localStorage 写入 cika_api_base 覆盖，便于调试/多环境切换）
         const API_BASE_URL = 'https://api.cika-meow.top/';
+        // v105: 运行环境探测——Tauri 打包客户端为 true（withGlobalTauri 注入 window.__TAURI__），浏览器中为 false。
+        // 用于区分桌面端独有功能（如应用更新）的显示。
+        const IS_TAURI = !!(window.__TAURI__);
+        // v105: 客户端操作系统探测（Tauri WebView 的 UA 与桌面系统一致），
+        // 更新推送按系统分发不同安装包：windows → .exe/.msi，macos → .dmg，linux → .AppImage/.deb
+        const CLIENT_OS = (function() {
+            var ua = String(navigator.userAgent || '');
+            if (/Windows/i.test(ua)) return 'windows';
+            if (/Macintosh|Mac OS X|MacIntel/i.test(ua)) return 'macos';
+            if (/Linux/i.test(ua)) return 'linux';
+            return 'other';
+        })();
         const HISTORY_LIMIT = 200;
         // v088: 内核版本号——关于页「内核版本」的显示来源，发布新版本时只需更新此常量
-        const KERNEL_VERSION = 101;
+        const KERNEL_VERSION = 105;
         const CC_BANNER_TITLE = '系统维护';
         const CC_BANNER_MSG = '系统正在维护，暂时无法登录。';
         const SALT = 'mjchat_2026_salt_v1';

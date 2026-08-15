@@ -32,3 +32,5 @@ node_modules
 .DS_Store
 *.sw?
 BELL/api-config.json
+*config.yml
+.dbg/

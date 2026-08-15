@@ -1890,10 +1890,13 @@
         // silent=true 为登录时自动检查：无新版本或最新版本号与客户端相同 → 静默不打扰；
         // 有新版本 → 弹确认框提示下载。手动点击「检查更新」→ 内联展示完整结果。
         async function checkUpdate(silent) {
+            // v105: 应用更新仅面向 Tauri 打包客户端，浏览器环境直接跳过（含登录时的静默检查）
+            if (!IS_TAURI) return;
             const box = document.getElementById('aboutUpdateInfo');
             let data = null;
             try {
-                const { data: rpcData, error } = await s3.rpc('get_update_info', {});
+                // v105: 携带系统标识（windows/macos/linux），服务端返回对应平台的安装包
+                const { data: rpcData, error } = await s3.rpc('get_update_info', { os: CLIENT_OS });
                 if (!error && rpcData && rpcData.success !== false) data = rpcData;
             } catch (e) { data = null; }
             if (!data) {
@@ -1957,6 +1960,12 @@
             if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
             if (n >= 1024) return (n / 1024).toFixed(1) + ' KB';
             return n + ' B';
+        }
+
+        // v105: 浏览器环境不提供桌面端更新功能，隐藏关于页「检查更新」区块
+        if (!IS_TAURI) {
+            const aboutUpdateEl = document.querySelector('.about-update');
+            if (aboutUpdateEl) aboutUpdateEl.style.display = 'none';
         }
 
         document.querySelectorAll('.dialog-overlay').forEach(el => {

@@ -307,6 +307,14 @@
     white-space: nowrap;
 }
 
+/* 标题区允许收缩：超长文件名时标题省略号截断，
+   避免把最小化/关闭按钮挤出窗口范围（flex 子项默认 min-width:auto 会按内容撑宽） */
+.fview-window .fview-bar .title-block {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+}
+
 .fview-window .media-zoom-controls {
     flex-shrink: 0;
 }

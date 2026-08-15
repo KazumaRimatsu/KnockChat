@@ -1078,6 +1078,47 @@
     border-radius: inherit;
 }
 
+/* --- 邀请成员弹窗 Tab --- */
+.gif-tabs {
+    display: flex;
+    gap: 0;
+    margin: 8px 0 4px;
+    border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-dialog-border);
+}
+.gif-tab {
+    flex: 1;
+    padding: 8px 0;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--md-dialog-text-muted);
+    font-size: 0.875rem;
+    font-weight: var(--app-font-weight-medium, var(--md-font-weight-medium));
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+.gif-tab:hover {
+    color: var(--md-dialog-text);
+}
+.gif-tab.active {
+    color: var(--md-primary);
+    border-bottom-color: var(--md-primary);
+}
+
+/* 机器人标签 */
+.gif-bot-tag {
+    display: inline-block;
+    padding: 0 5px;
+    margin-left: 4px;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    border-radius: 3px;
+    background: var(--md-primary-container, #e8def8);
+    color: var(--md-primary, #6750a4);
+    font-weight: 500;
+    vertical-align: middle;
+}
+
 /* --- 群聊信息 --- */
 #groupInfoDialog .md-dialog {
     max-width: 400px;
