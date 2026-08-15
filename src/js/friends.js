@@ -259,7 +259,7 @@
         if (!container) return;
         if (!q) { container.innerHTML = '<div class="empty">输入昵称搜索用户</div>'; return; }
         container.dataset.rendered = '1';
-        container.innerHTML = '<div style="text-align:center;padding:30px;"><span class="md-circular-loader" style="width:28px;height:28px;margin:0 auto;"><svg viewBox="0 0 22 22" style="width:28px;height:28px;"><circle cx="11" cy="11" r="9.5"/></svg></span></div>';
+        container.innerHTML = '<div style="text-align:center;padding:30px;">' + mdLoaderSvg(28, 'margin:0 auto;') + '</div>';
         searchUsers(q, function(results) {
             if (!results || results.length === 0) {
                 container.innerHTML = '<div class="empty">未找到用户「' + escapeHtml(q) + '」</div>';
@@ -312,7 +312,7 @@
                     var avUrl = r.other_avatar || '';
                     var avStyle = avUrl ? ' style="background-image:url(\'' + escapeAttr(sanitizeAvatarUrl(avUrl)) + '\');background-size:cover;background-position:center;"' : '';
                     var avText = avUrl ? '' : escapeHtml(name.charAt(0).toUpperCase());
-                    var time = formatTime(r.created_at);
+                    var time = fmtListTime(r.created_at);
                     return '<div class="fr-req-item" id="frReq_' + escapeJsString(r.id) + '">' +
                             '<div class="av av-' + idx + '"' + avStyle + '>' + avText + '</div>' +
                             '<div class="fr-req-info"><div class="fr-req-name">' + escapeHtml(name) + '</div>' +
@@ -334,23 +334,11 @@
                     var cls = r.status === 'pending' ? '' : (r.status === 'accepted' ? ' ok' : ' fail');
                     return '<div class="fr-req-item">' +
                             '<div class="fr-req-info"><div class="fr-req-name">' + escapeHtml(r.to_username) + '</div>' +
-                            '<div class="fr-req-time">' + (r.message ? escapeHtml(r.message) + ' · ' : '') + formatTime(r.created_at) + '</div></div>' +
+                            '<div class="fr-req-time">' + (r.message ? escapeHtml(r.message) + ' · ' : '') + fmtListTime(r.created_at) + '</div></div>' +
                             '<span class="fr-state' + cls + '">' + statusText + '</span></div>';
                 }).join('');
             }
         }
-    }
-
-    function formatTime(iso) {
-        if (!iso) return '';
-        try {
-            var d = new Date(iso);
-            var now = new Date();
-            var sameDay = d.toDateString() === now.toDateString();
-            var hm = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-            if (sameDay) return hm;
-            return d.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
-        } catch (e) { return ''; }
     }
 
     // ==================== 好友申请：发起 ====================

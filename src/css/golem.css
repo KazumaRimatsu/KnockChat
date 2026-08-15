@@ -9,6 +9,8 @@
     gap: 6px;
     padding: 10px 14px;
     overflow-x: auto;
+    /* 显式关闭隐式纵向滚动（overflow-x 非 visible 时 overflow-y 会计算为 auto） */
+    overflow-y: hidden;
     flex-shrink: 0;
     border-bottom: var(--md-outline-width) var(--md-outline-style) var(--md-settings-border);
     -webkit-overflow-scrolling: touch;
@@ -190,13 +192,30 @@
 }
 
 /* --- 新增/编辑弹窗 --- */
+/* 弹窗改 flex 列：头部/操作按钮固定，仅表单内容滚动，
+   避免矮窗口需滚到底才能点保存 */
 .golem-modal .md-dialog {
+    display: flex;
+    flex-direction: column;
     max-width: 400px;
     max-height: 84vh;
+    overflow: hidden;
+}
+
+.golem-modal .md-dialog > .dialog-header,
+.golem-modal .md-dialog > .dialog-actions {
+    flex-shrink: 0;
 }
 
 .golem-form .md-text-field {
     margin-bottom: 12px;
+}
+
+.golem-modal .golem-form {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .golem-hint {
@@ -248,10 +267,10 @@
     font-family: Consolas, Menlo, monospace;
     font-size: var(--md-font-size-base);
     color: var(--md-on-surface);
+    /* 登录密钥必须完整可见：允许换行，禁用单行截断 */
     word-break: break-all;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
 }
 
 .golem-key-actions {

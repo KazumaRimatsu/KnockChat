@@ -793,14 +793,17 @@
         }
     }
 
+    // 统一确认弹窗：优先应用内 showConfirm，回退 window.confirm（群管理多处确认共用）
+    function confirmWith(title, message, cb) {
+        if (typeof showConfirm === 'function') { showConfirm(title, message, cb); return; }
+        if (window.confirm(message)) cb();
+    }
+
     // 设为/取消管理员（仅群主）
     async function toggleAdmin(uid, isAdmin) {
         if (!currentGroupId) return;
         var actionName = isAdmin ? '设为管理员' : '取消管理员';
-        var confirmOk = (typeof showConfirm === 'function')
-            ? function(cb) { showConfirm(actionName, isAdmin ? '确定将 TA 设为群管理员吗？' : '确定取消 TA 的管理员身份吗？', cb); }
-            : function(cb) { if (window.confirm(isAdmin ? '确定将 TA 设为群管理员吗？' : '确定取消 TA 的管理员身份吗？')) cb(); };
-        confirmOk(async function() {
+        confirmWith(actionName, isAdmin ? '确定将 TA 设为群管理员吗？' : '确定取消 TA 的管理员身份吗？', async function() {
             try {
                 var { data, error } = await s3.rpc('set_group_admin', {
                     p_uid: myUid(),
@@ -822,10 +825,7 @@
     // 移出群成员（管理员/群主）
     async function kickGroupMember(uid, name) {
         if (!currentGroupId) return;
-        var confirmOk = (typeof showConfirm === 'function')
-            ? function(cb) { showConfirm('移出群聊', '确定将「' + (name || '该成员') + '」移出群聊吗？', cb); }
-            : function(cb) { if (window.confirm('确定将「' + (name || '该成员') + '」移出群聊吗？')) cb(); };
-        confirmOk(async function() {
+        confirmWith('移出群聊', '确定将「' + (name || '该成员') + '」移出群聊吗？', async function() {
             try {
                 var { data, error } = await s3.rpc('kick_group_member', {
                     p_uid: myUid(),
@@ -846,10 +846,7 @@
     // v102: 转让群主（仅群主）——转让后当前账号降为普通成员
     async function transferGroup(uid, name) {
         if (!currentGroupId) return;
-        var confirmOk = (typeof showConfirm === 'function')
-            ? function(cb) { showConfirm('群主转让', '确定将群主转让给「' + (name || '该成员') + '」吗？转让后您将降为普通成员。', cb); }
-            : function(cb) { if (window.confirm('确定将群主转让给「' + (name || '该成员') + '」吗？转让后您将降为普通成员。')) cb(); };
-        confirmOk(async function() {
+        confirmWith('群主转让', '确定将群主转让给「' + (name || '该成员') + '」吗？转让后您将降为普通成员。', async function() {
             try {
                 var { data, error } = await s3.rpc('transfer_group', {
                     p_uid: myUid(),
@@ -874,10 +871,7 @@
     async function clearGroupMessages() {
         if (!currentGroupId) return;
         closeGroupManageDialog();
-        var confirmOk = (typeof showConfirm === 'function')
-            ? function(cb) { showConfirm('清空群消息', '确定清空本群全部消息吗？该操作不可恢复，多媒体文件将一并删除。', cb); }
-            : function(cb) { if (window.confirm('确定清空本群全部消息吗？该操作不可恢复，多媒体文件将一并删除。')) cb(); };
-        confirmOk(async function() {
+        confirmWith('清空群消息', '确定清空本群全部消息吗？该操作不可恢复，多媒体文件将一并删除。', async function() {
             try {
                 var { data, error } = await s3.rpc('clear_group_messages', {
                     p_uid: myUid(),

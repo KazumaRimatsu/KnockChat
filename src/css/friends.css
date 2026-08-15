@@ -41,7 +41,16 @@
 }
 .fr-group-head:hover { background: var(--md-surface-container-high); }
 .fr-group-caret { font-size: var(--md-font-size-sm); color: var(--md-on-surface-variant); width: 16px; }
-.fr-group-name { font-size: var(--md-font-size-base); font-weight: var(--md-font-weight-medium, 500); color: var(--md-on-surface); }
+.fr-group-name {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--md-font-size-base);
+    font-weight: var(--md-font-weight-medium, 500);
+    color: var(--md-on-surface);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
 .fr-group-count { margin-left: 6px; font-size: var(--md-font-size-sm); color: var(--md-on-surface-variant); }
 .fr-group-ops { margin-left: auto; display: flex; gap: 4px; }
 .fr-op-btn {
@@ -55,11 +64,13 @@
     cursor: pointer;
 }
 
-/* 触控扩展：紧凑文本按钮 → 48dp 点击区 */
+/* 触控扩展：紧凑文本按钮 → 略放大点击区（约 40dp）。
+   不宜过大（inset:-11px 会越过分组头底部压到下方好友项，
+   且相邻按钮点击区重叠导致误触） */
 .fr-op-btn::before {
     content: '';
     position: absolute;
-    inset: -11px;
+    inset: -6px;
     border-radius: inherit;
 }
 
@@ -298,7 +309,25 @@
 .fr-dialog-body input.md-text-field:focus {
     border: var(--md-focus-border);
 }
-.fr-picker-list { padding: 8px 0 4px; max-height: 40vh; overflow-y: auto; }
+/* 好友选择弹窗：dialog 改 flex 列，仅列表滚动；
+   消除 md-dialog(max-height:80vh) 与列表 max-height 嵌套的矮窗口双滚动条 */
+#frPickerDialog .md-dialog {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#frPickerDialog .md-dialog > .dialog-header,
+#frPickerDialog .md-dialog > .dialog-actions {
+    flex-shrink: 0;
+}
+
+.fr-picker-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px 0 4px;
+}
 .fr-picker-item {
     display: flex;
     align-items: center;

@@ -34,7 +34,7 @@
         })();
         const HISTORY_LIMIT = 200;
         // v088: 内核版本号——关于页「内核版本」的显示来源，发布新版本时只需更新此常量
-        const KERNEL_VERSION = 105;
+        const KERNEL_VERSION = 110;
         const CC_BANNER_TITLE = '系统维护';
         const CC_BANNER_MSG = '系统正在维护，暂时无法登录。';
         const SALT = 'mjchat_2026_salt_v1';
@@ -81,6 +81,50 @@
         // 语音消息播放/暂停按钮图标（渲染语音气泡与切换播放状态共用）
         const ICON_PLAY = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
         const ICON_PAUSE = '<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+        // 圆形加载动画（md-circular-loader）：全局共享常量，避免 10+ 处重复内联 SVG。
+        // 默认版无尺寸样式（由 CSS .md-circular-loader 定宽高）；需要内联尺寸时用 mdLoaderSvg(size, spanExtraStyle)
+        const MD_LOADER_SVG = '<span class="md-circular-loader"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span>';
+        function mdLoaderSvg(size, spanExtraStyle) {
+            var px = size ? 'width:' + size + 'px;height:' + size + 'px;' : '';
+            var spanStyle = px + (spanExtraStyle || '');
+            return '<span class="md-circular-loader"' + (spanStyle ? ' style="' + spanStyle + '"' : '') + '>' +
+                '<svg viewBox="0 0 22 22"' + (px ? ' style="' + px + '"' : '') + '><circle cx="11" cy="11" r="9.5"/></svg></span>';
+        }
+
+        // 文件扩展名分类（图片/视频/音频判定、粘贴识别、群文件、文件预览共用；
+        // features.js 与 fview.js 统一引用，避免两处各自维护）
+        const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico', 'tiff', 'psd'];
+        const VIDEO_EXTS = ['mp4', 'webm', 'ogg', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp', 'mpeg', 'mpg', 'ogv', 'm3u8'];
+        const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac', 'wma', 'amr', 'mid', 'midi'];
+        // Office Web Viewer 支持的文档格式
+        const OFFICE_EXTS = ['doc', 'docx', 'docm', 'dotx', 'dotm', 'rtf',
+            'xls', 'xlsx', 'xlsb', 'xlsm',
+            'ppt', 'pptx', 'pps', 'ppsx', 'pot', 'potx',
+            'odt', 'ods', 'odp'
+        ];
+        const CODE_EXTS = [
+            'js', 'mjs', 'cjs', 'ts', 'jsx', 'tsx',
+            'html', 'htm', 'css', 'scss', 'sass', 'less', 'json',
+            'py', 'java', 'c', 'h', 'cpp', 'hpp', 'cc', 'cxx', 'cs',
+            'go', 'rs', 'php', 'rb', 'sh', 'bash', 'zsh', 'sql',
+            'xml', 'yaml', 'yml', 'toml', 'ini', 'conf',
+            'md', 'markdown', 'swift', 'kt', 'kts', 'lua', 'r', 'dart',
+            'scala', 'pl', 'perl', 'vue', 'svelte', 'dockerfile', 'makefile',
+            'cmake', 'bat', 'ps1', 'diff', 'groovy', 'tex', 'proto', 'graphql', 'gql'
+        ];
+
+        // 列表时间格式化：当天显示 HH:mm，否则显示 M-d（群列表 / 好友申请 / 消息列表共用）
+        function fmtListTime(iso) {
+            if (!iso) return '';
+            var d = new Date(iso);
+            if (isNaN(d.getTime())) return '';
+            var now = new Date();
+            if (d.toDateString() === now.toDateString()) {
+                return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            }
+            return (d.getMonth() + 1) + '-' + d.getDate();
+        }
 
         // 本地存储键集中定义：全部 localStorage/IndexedDB/Cache 键名统一在此维护，
         // 其余文件一律通过 LS_KEYS 引用，避免散落字符串。

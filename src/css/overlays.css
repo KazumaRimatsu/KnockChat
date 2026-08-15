@@ -21,6 +21,8 @@
     font-size: var(--md-font-size-base);
     color: var(--md-snackbar-text);
     box-shadow: var(--md-elevation-4);
+    /* 长内容/长链接断词换行，避免撑破 90vw 出现横向滚动 */
+    overflow-wrap: anywhere;
     transform: translateX(-50%);
     animation: snackbar-in 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -166,9 +168,10 @@
     cursor: grabbing;
 }
 
-/* 文件类预览（office/code/不支持）允许滚动与触摸平移 */
+/* 文件类预览（office/code/不支持）允许触摸平移。
+   滚动职责交给内部 .fview-code，body 自身不滚动，避免冗余双滚动条 */
 .media-viewer-body.file-mode {
-    overflow: auto;
+    overflow: hidden;
     touch-action: auto;
 }
 
@@ -189,6 +192,8 @@
 .fview-code {
     width: 100%;
     height: 100%;
+    /* 允许压缩到容器高度：内容超高时在内部滚动，不撑破 body */
+    min-height: 0;
     margin: 0;
     padding: 16px;
     box-sizing: border-box;

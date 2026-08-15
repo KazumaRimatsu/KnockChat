@@ -7,12 +7,22 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    /* safe center：内容不超高时垂直居中；内容超高（小屏手机）时回退到
+       start，配合 overflow-y:auto 保证顶部品牌区可滚动到达，不被裁掉 */
+    justify-content: safe center;
     flex: 1;
     gap: 36px;
     padding: 48px 40px;
     overflow-y: auto;
     background: var(--md-background);
+}
+
+/* 矮视口：收紧纵向留白，减少滚动距离 */
+@media (max-height: 600px) {
+    .auth-screen {
+        gap: 20px;
+        padding: 28px 40px;
+    }
 }
 
 .auth-header {

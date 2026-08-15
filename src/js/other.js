@@ -845,57 +845,63 @@
             isNavigating = false;
         }
 
-        function navigateTo(page) {
-            if (page === 'home') {
-                pushPageHistory('home');
-                switchPage('homePage', true);
+        // 页面标识 → 页面 DOM id 映射（navigateTo / navigateBack 共用，避免两处各自维护）
+        const PAGE_MAP = {
+            home: 'homePage',
+            public: 'publicPage',
+            group: 'publicPage',
+            search: 'searchPage',
+            settings: 'settingsPage',
+            about: 'aboutPage',
+            groupFiles: 'groupFilesPage',
+            userDetail: 'userDetailPage',
+            editProfile: 'editProfilePage',
+            friends: 'friendsPage',
+            addFriend: 'addFriendPage',
+            golem: 'golemPage'
+        };
+
+        // 各页面进入时的初始化动作（navigateTo 调用；无动作页面不配置）
+        const NAV_INIT = {
+            home: function() {
                 updateSidebarHighlight();
                 loadPrivateSessions();
                 // v099: 群列表摘要/未读由 renderGroupList 内部同步（原公聊 updatePublicEntry 已删除）
                 updatePublicBadge();
-            } else if (page === 'public') {
+            },
+            public: function() {
                 // v099: 群聊窗口（openGroupChat 为主要入口；此处兜底处理 popstate/历史恢复）
-                pushPageHistory('group');
-                switchPage('publicPage', true);
                 updateSidebarHighlight();
                 if (currentGroupId && groupMessages.length > 0) {
                     refreshGroupMessages();
                     markGroupRead();
                 }
                 updateBackBadge();
-            } else if (page === 'search') {
-                pushPageHistory('search');
-                switchPage('searchPage', true);
+            },
+            search: function() {
                 document.getElementById('searchInput').value = '';
                 document.getElementById('searchResults').innerHTML = '<div class="empty">输入昵称开始搜索</div>';
-            } else if (page === 'settings') {
-                pushPageHistory('settings');
-                switchPage('settingsPage', true);
+            },
+            settings: function() {
                 updateThemeLabel();
                 refreshNotifySettingsUI();
                 // v072: 刷新屏蔽词检测设置入口显示值
                 updateBlockwordSettingsUI();
-            } else if (page === 'about') {
-                pushPageHistory('about');
-                switchPage('aboutPage', true);
+            },
+            about: function() {
                 // v088: 内核版本来源为 constants.js 的 KERNEL_VERSION 常量，更新版本只需维护该常量
                 const mjchatVersion = document.getElementById('aboutMjchatVersion');
                 if (mjchatVersion) mjchatVersion.textContent = '内核版本 v' + String(KERNEL_VERSION).padStart(3, '0');
-            } else if (page === 'groupFiles') {
-                pushPageHistory('groupFiles');
-                switchPage('groupFilesPage', true);
-                _loadGroupFiles();
-            } else if (page === 'userDetail') {
-                pushPageHistory('userDetail');
-                switchPage('userDetailPage', true);
-            } else if (page === 'editProfile') {
-                pushPageHistory('editProfile');
-                switchPage('editProfilePage', true);
-            } else if (page === 'golem') {
-                pushPageHistory('golem');
-                switchPage('golemPage', true);
-                loadGolemBots();
-            }
+            },
+            groupFiles: function() { _loadGroupFiles(); },
+            golem: function() { loadGolemBots(); }
+        };
+
+        function navigateTo(page) {
+            // v099: 群聊窗口统一记录为 'group' 历史项（popstate/历史恢复兼容）
+            pushPageHistory(page === 'public' ? 'group' : page);
+            switchPage(PAGE_MAP[page] || (page + 'Page'), true);
+            if (typeof NAV_INIT[page] === 'function') NAV_INIT[page]();
             updateBackBadge();
         }
 
@@ -929,17 +935,7 @@
             if (currentPage !== 'home' && pageHistory.length > 1) {
                 popPageHistory();
                 const prevPage = pageHistory[pageHistory.length - 1];
-                const targetId = prevPage === 'group' || prevPage === 'public' ? 'publicPage' :
-                                 prevPage === 'search' ? 'searchPage' :
-                                 prevPage === 'settings' ? 'settingsPage' :
-                                 prevPage === 'about' ? 'aboutPage' :
-                                 prevPage === 'groupFiles' ? 'groupFilesPage' :
-                                 prevPage === 'userDetail' ? 'userDetailPage' :
-                                 prevPage === 'editProfile' ? 'editProfilePage' :
-                                 // v097: 好友相关页面
-                                 prevPage === 'friends' ? 'friendsPage' :
-                                 prevPage === 'addFriend' ? 'addFriendPage' :
-                                 prevPage === 'golem' ? 'golemPage' : 'homePage';
+                const targetId = PAGE_MAP[prevPage] || 'homePage';
                 switchPage(targetId, false);
                 updateBackBadge();
                 // v099: 返回群聊页时恢复消息轮询（上一步 leaveGroupChat 已停止）

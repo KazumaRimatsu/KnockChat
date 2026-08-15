@@ -1,9 +1,6 @@
 /* KnockChat 功能模块：语音、图片、文件、链接、表情、文本特效、通知音、Agent、头像、搜索 */
 
-        // 文件类型分类（模块级常量：图片/视频判定、粘贴识别、群文件共用；fview.js 复用）
-        const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico', 'tiff', 'psd'];
-        const VIDEO_EXTS = ['mp4', 'webm', 'ogg', 'mov', 'm4v', 'avi', 'mkv', 'flv', 'wmv', '3gp', 'mpeg', 'mpg', 'ogv', 'm3u8'];
-        const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac', 'wma', 'amr', 'mid', 'midi'];
+        // 文件类型分类：IMAGE_EXTS / VIDEO_EXTS / AUDIO_EXTS 统一在 constants.js 定义（本文件与 fview.js 共用）
 
         // Blob → base64（S3 upload_media RPC 走 base64 传输）
         function blobToBase64(blob) {
@@ -497,10 +494,6 @@
                     if (popup) popup.classList.remove('show');
                     el(cfg.textEffectSubPanelId).classList.add('active');
                 },
-                openVoiceSubPanel: function() {
-                    // 语音改为「按住说话」模式：切换输入框/语音行
-                    toggleVoiceMode(cfg.voiceScope);
-                },
                 applyTextEffect: function(tag) {
                     applyTextEffectTo(el(cfg.inputId), cfg.toggleSendBtn, tag);
                 }
@@ -533,7 +526,6 @@
         function insertEmoji(emoji) { publicPanelCtrl.insertEmoji(emoji); }
         function openEmojiSubPanel() { publicPanelCtrl.openEmojiSubPanel(); }
         function openTextEffectSubPanel() { publicPanelCtrl.openTextEffectSubPanel(); }
-        function openVoiceSubPanel() { publicPanelCtrl.openVoiceSubPanel(); }
         function closeSubPanel() { publicPanelCtrl.closeSubPanel(); }
         function applyTextEffect(tag) { publicPanelCtrl.applyTextEffect(tag); }
 
@@ -543,7 +535,6 @@
         function privateInsertEmoji(emoji) { privatePanelCtrl.insertEmoji(emoji); }
         function privateOpenEmojiSubPanel() { privatePanelCtrl.openEmojiSubPanel(); }
         function privateOpenTextEffectSubPanel() { privatePanelCtrl.openTextEffectSubPanel(); }
-        function privateOpenVoiceSubPanel() { privatePanelCtrl.openVoiceSubPanel(); }
         function privateApplyTextEffect(tag) { privatePanelCtrl.applyTextEffect(tag); }
 
         // 点击浮层/子面板外部时关闭（输入区内点击由各按钮 onclick 自行切换面板）
@@ -1109,7 +1100,7 @@
                 return;
             }
             // 网络搜索延迟时显示圆形加载动画（复用 md-circular-loader）
-            container.innerHTML = '<div class="search-loading"><span class="md-circular-loader"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span></div>';
+            container.innerHTML = '<div class="search-loading">' + MD_LOADER_SVG + '</div>';
             try {
                 let users = null;
                 try {
@@ -1224,7 +1215,7 @@
                 _renderGroupFiles(_groupFilesCache.resp, gid);
                 return;
             }
-            container.innerHTML = '<div style="display:flex;justify-content:center;padding:24px;"><span class="md-circular-loader"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span></div>';
+            container.innerHTML = '<div style="display:flex;justify-content:center;padding:24px;">' + MD_LOADER_SVG + '</div>';
             try {
                 // v104: 并行拉取文件列表 + 文件夹列表
                 const [mediaRes, folderRes] = await Promise.all([

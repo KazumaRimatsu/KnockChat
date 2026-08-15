@@ -157,7 +157,8 @@
 .sidebar-menu {
     position: absolute !important;
     inset: auto !important;
-    top: 56px;
+    /* 与侧边栏 .app-bar 高度(64px) 对齐，避免与顶栏重叠 */
+    top: 64px;
     right: 8px;
     bottom: auto;
     left: 8px;
@@ -176,6 +177,9 @@
 .user-menu-card {
     min-width: 200px;
     max-width: 280px;
+    /* 菜单项较多时在矮视口内滚动，避免底部菜单项不可达 */
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
     margin-top: 56px;
     padding: 20px 16px 12px;
     border-radius: var(--radius-xs);

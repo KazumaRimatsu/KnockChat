@@ -72,6 +72,19 @@
             } catch (e) { return null; }
         }
 
+        // 删除指定媒体 URL 的缓存字节（消息删除/清空时同步清理本地缓存）。
+        // 缓存键与 getCachedImageBlob 一致：mediaUrlToPublic 规范化后的公开直链；
+        // 未命中该 URL 的缓存条目时 delete 返回 false，静默忽略即可。
+        async function removeCachedImage(url) {
+            const norm = (typeof mediaUrlToPublic === 'function') ? mediaUrlToPublic(url) : url;
+            if (!norm || typeof caches === 'undefined' || !/^https?:\/\//i.test(norm)) return;
+            try {
+                const cache = await _imgCache();
+                if (!cache) return;
+                await cache.delete(norm);
+            } catch (e) { /* 忽略 */ }
+        }
+
         async function _fetchAndCacheImage(url) {
             try {
                 // v073：AbortController 超时，避免坏 URL 长时间挂起

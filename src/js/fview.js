@@ -13,24 +13,8 @@
  */
 
         // ============================================================
-        // 文件类型分类（图片/视频扩展名复用 features.js 的 IMAGE_EXTS / VIDEO_EXTS 常量）
+        // 文件类型分类：IMAGE_EXTS / VIDEO_EXTS / AUDIO_EXTS / OFFICE_EXTS / CODE_EXTS 统一在 constants.js 定义
         // ============================================================
-        // Office Web Viewer 支持的文档格式
-        var FVIEW_OFFICE_EXTS = ['doc', 'docx', 'docm', 'dotx', 'dotm', 'rtf',
-            'xls', 'xlsx', 'xlsb', 'xlsm',
-            'ppt', 'pptx', 'pps', 'ppsx', 'pot', 'potx',
-            'odt', 'ods', 'odp'
-        ];
-        var FVIEW_CODE_EXTS = [
-            'js', 'mjs', 'cjs', 'ts', 'jsx', 'tsx',
-            'html', 'htm', 'css', 'scss', 'sass', 'less', 'json',
-            'py', 'java', 'c', 'h', 'cpp', 'hpp', 'cc', 'cxx', 'cs',
-            'go', 'rs', 'php', 'rb', 'sh', 'bash', 'zsh', 'sql',
-            'xml', 'yaml', 'yml', 'toml', 'ini', 'conf',
-            'md', 'markdown', 'swift', 'kt', 'kts', 'lua', 'r', 'dart',
-            'scala', 'pl', 'perl', 'vue', 'svelte', 'dockerfile', 'makefile',
-            'cmake', 'bat', 'ps1', 'diff', 'groovy', 'tex', 'proto', 'graphql', 'gql'
-        ];
         // 扩展名 → highlight.js 语言名
         var FVIEW_CODE_LANG_MAP = {
             js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'javascript',
@@ -179,7 +163,7 @@
                 '</div>' +
                 '<div class="media-viewer-body fview-body">' +
                     '<div class="media-loading fview-loading hidden">' +
-                        '<span class="md-circular-loader"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span>' +
+                        MD_LOADER_SVG +
                         '<span class="media-loading-text fview-loading-text"></span>' +
                     '</div>' +
                     '<img class="fview-img hidden" src="" draggable="false">' +
@@ -718,10 +702,7 @@
             }
         }
 
-        // 文件型图片消息点击时复用图片预览
-        function viewImage(url) {
-            previewImage(url);
-        }
+        // 文件型图片消息点击时复用图片预览（onclick 直接调 previewImage）
 
         function openVideoPreview(url, filename) {
             if (!url) return;
@@ -788,8 +769,8 @@
             if (IMAGE_EXTS.indexOf(ext) !== -1) { previewImage(url, filename); return; }
             if (VIDEO_EXTS.indexOf(ext) !== -1) { openVideoPreview(url, filename); return; }
             if (AUDIO_EXTS.indexOf(ext) !== -1) { openAudioPreview(url, filename); return; }
-            if (FVIEW_OFFICE_EXTS.indexOf(ext) !== -1) { _previewOffice(url, filename); return; }
-            if (FVIEW_CODE_EXTS.indexOf(ext) !== -1) { _previewCode(url, filename); return; }
+            if (OFFICE_EXTS.indexOf(ext) !== -1) { _previewOffice(url, filename); return; }
+            if (CODE_EXTS.indexOf(ext) !== -1) { _previewCode(url, filename); return; }
             _previewUnsupported(filename);
         }
 

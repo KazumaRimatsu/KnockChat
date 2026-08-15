@@ -41,6 +41,18 @@
             try {
                 const key = _AVATAR_LS_PREFIX + encodeURIComponent(username);
                 if (url) {
+                    // 值未变化：跳过缓存键写入（重复查看同一用户时避免每次写两次 localStorage）
+                    if (localStorage.getItem(key) === url) {
+                        const idx = _avatarIndex();
+                        const k = idx.indexOf(username);
+                        // 已是最近条目：无需任何写入
+                        if (k !== -1 && k === idx.length - 1) return;
+                        // 值未变化但需维护索引（补录 / 移至最近），避免重复写缓存键
+                        if (k !== -1) idx.splice(k, 1);
+                        idx.push(username);
+                        localStorage.setItem(_AVATAR_INDEX_KEY, JSON.stringify(idx));
+                        return;
+                    }
                     localStorage.setItem(key, url);
                     // 维护写入顺序索引，超限时淘汰最旧
                     const idx = _avatarIndex();
@@ -168,7 +180,7 @@
             const bgLoader = document.createElement('div');
             bgLoader.id = 'udBgLoader';
             bgLoader.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:1;';
-            bgLoader.innerHTML = '<span class="md-circular-loader" style="width:32px;height:32px;color:#fff;"><svg viewBox="0 0 22 22" style="width:32px;height:32px;"><circle cx="11" cy="11" r="9.5"/></svg></span>';
+            bgLoader.innerHTML = mdLoaderSvg(32, 'color:#fff;');
             bgEl.appendChild(bgLoader);
 
             function removeBgLoader() {
@@ -527,7 +539,7 @@
             const overlay = document.createElement('div');
             overlay.id = 'epSavingOverlay';
             overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:99998;display:flex;align-items:center;justify-content:center;';
-            overlay.innerHTML = '<span class="md-circular-loader" style="width:48px;height:48px;color:#fff;"><svg viewBox="0 0 22 22" style="width:48px;height:48px;"><circle cx="11" cy="11" r="9.5"/></svg></span>';
+            overlay.innerHTML = mdLoaderSvg(48, 'color:#fff;');
             document.body.appendChild(overlay);
             try {
 

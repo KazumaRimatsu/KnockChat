@@ -29,13 +29,6 @@
             _rateLimits[action].push(now);
             return true;
         }
-        function rateLimitedAction(action, maxCount, windowMs, fn) {
-            if (!checkRateLimit(action, maxCount, windowMs)) {
-                showSnackbar('操作过于频繁，请稍后再试');
-                return Promise.resolve(null);
-            }
-            return fn();
-        }
 
         var _csrfToken = '';
         function getCsrfToken() {
@@ -151,16 +144,6 @@
             const arr = new Uint8Array(16);
             crypto.getRandomValues(arr);
             return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
-        }
-
-        async function recordLogin(username, ip, region) {
-            try {
-                await s3.rpc('record_login', {
-                    p_uid: currentUid,
-                    p_ip: ip || 'unknown',
-                    p_region: region || ''
-                });
-            } catch (e) { /* ignore */ }
         }
 
         // v058: 记录上次登录账号与时间（对齐新版 MJChat 的 mjchat_last_login），

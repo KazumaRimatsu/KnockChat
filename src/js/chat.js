@@ -362,7 +362,7 @@
         }
 
         // v099: 群消息到达统一入口（轮询/发送回包共用）。gid 为消息所属群聊。
-        function handleGroupMessage(gid, msg, isHistory = false) {
+        function handleGroupMessage(gid, msg, isHistory = false, container) {
             const existing = groupMessageById.get(msg.id);
             if (existing) {
                 // 旧版本地缓存缺 sender_uid，用服务端数据补齐，并就地修正消息行归属
@@ -413,7 +413,7 @@
             }
             const isCurrent = gid === currentGroupId;
             if (isCurrent && document.getElementById('publicPage').classList.contains('active')) {
-                renderGroupMessage(nm);
+                renderGroupMessage(nm, container);
                 if (!nm.is_system) {
                     markGroupRead(nm.created_at);
                 }
@@ -463,7 +463,7 @@
         }
 
         // v058: 图片加载占位动画——图片加载完成前显示 MD 圆圈动画（对齐新版 MJChat v055/v056）
-        const _mdLoaderSvg = '<span class="md-circular-loader"><svg viewBox="0 0 22 22"><circle cx="11" cy="11" r="9.5"/></svg></span>';
+        const _mdLoaderSvg = MD_LOADER_SVG;
         // 缓存解析前的 1px 透明占位（避免占位图提前触发 onload 隐藏加载动画）
         const _IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
         function _wrapImgWithLoader(url, extraAttrs, extraStyle) {
@@ -733,7 +733,7 @@
                     if (isImageFile(fileName)) {
                         const mdImgUid = 'img_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
                         _resolveCachedImage(mdImgUid, marked.url);
-                        bubbleContent = `<img src="${_IMG_PLACEHOLDER}" id="${mdImgUid}" alt="${escapeAttr(fileName)}" loading="lazy" style="max-width:280px;max-height:280px;border-radius:12px;cursor:pointer;" onclick="viewImage('${escapeJsString(marked.url)}')">`;
+                        bubbleContent = `<img src="${_IMG_PLACEHOLDER}" id="${mdImgUid}" alt="${escapeAttr(fileName)}" loading="lazy" style="max-width:280px;max-height:280px;border-radius:12px;cursor:pointer;" onclick="previewImage('${escapeJsString(marked.url)}')">`;
                         msgType = 'image';
                         imageUrl = marked.url;
                     } else if (isVideoFile(fileName)) {
@@ -1146,17 +1146,37 @@
             // v099: 群聊不接入智能体（原公聊 @智能体 流程 checkAgentMention/triggerAgentResponse 已删除）
         }
 
+        // 清理单条消息在本地缓存的媒体残留（图片/表情字节缓存；缓存键为规范化公开直链）。
+        // 视频/文件/语音不进入 Cache API 字节缓存，但统一尝试删除无害（未命中时静默忽略）。
+        function purgeMsgMediaCache(msg) {
+            if (!msg || typeof msg !== 'object') return;
+            if (typeof removeCachedImage !== 'function') return;
+            const c = (typeof parseMsgContents === 'function') ? parseMsgContents(msg) : null;
+            if (c && c.url && (c.type === 'image' || c.type === 'emoji' || c.type === 'video' || c.type === 'file' || c.type === 'audio')) {
+                removeCachedImage(c.url);
+            }
+            // 历史消息字段兜底（contents 协议前的 image_url）
+            if (msg.image_url) removeCachedImage(msg.image_url);
+        }
+
         function handleGroupDeleted(gid, msgId) {
+            // 先取回被删消息对象，供清理其本地媒体缓存（删除后索引中不再可查）
+            const removed = groupMessageById.get(msgId) || groupMessages.find(m => m.id === msgId);
             groupMessages = groupMessages.filter(m => m.id !== msgId);
             groupMessageById.delete(msgId);
             const rows = document.querySelectorAll('#publicMessages .msg-row');
             rows.forEach(row => { if (row.dataset.msgId === msgId) row.remove(); });
+            // 本地缓存同步删除：媒体字节缓存 + 聊天记录加密缓存重建（否则离线缓存残留被删消息）
+            if (removed) purgeMsgMediaCache(removed);
+            scheduleMessageCacheSave();
             // 若删除的是群内最后一条非系统消息，摘要回退为群内现存最后一条消息
             updateGroupEntrySummary();
         }
 
         // v100.x: 群主清空群消息后的本地同步（清空列表与 DOM，插入后端返回的系统提示）
         function clearLocalGroupMessages(sysMsg) {
+            // 同步清理本地缓存：先清媒体字节缓存，再重建聊天记录加密缓存
+            groupMessages.forEach(function(m) { purgeMsgMediaCache(m); });
             groupMessages = [];
             groupMessageById.clear();
             const pm = document.getElementById('publicMessages');
@@ -1166,6 +1186,7 @@
             if (sysMsg && typeof handleGroupMessage === 'function') {
                 try { handleGroupMessage(sysMsg); } catch (e) { /* ignore */ }
             }
+            scheduleMessageCacheSave();
             // 重置群列表摘要与未读
             for (var i = 0; i < myGroups.length; i++) {
                 if (myGroups[i].id === currentGroupId) {
@@ -1794,7 +1815,7 @@
             var avStyle = avUrl ? ' style="background-image:url(\'' + escapeAttr(sanitizeAvatarUrl(avUrl)) + '\');background-size:cover;background-position:center;"' : '';
             var avText = avUrl ? '' : escapeHtml((g.name || '群').charAt(0).toUpperCase());
             var lastMsg = getMessagePreview(g.last_message) || '';
-            var time = fmtGroupListTime(g.last_message_at);
+            var time = fmtListTime(g.last_message_at);
             // v102: 群列表项显示己方角色（群主/管理员）
             var roleTag = g.my_role === 'owner' ? '<span class="g-owner-tag">群主</span>'
                 : g.my_role === 'admin' ? '<span class="g-admin-tag">管理员</span>' : '';
@@ -2102,17 +2123,6 @@
         function isGroupMuted(gid) { return !!_muteGroups[gid]; }
 
         // 群聊列表时间：今天显示时分，更早显示 月-日
-        function fmtGroupListTime(iso) {
-            if (!iso) return '';
-            const d = new Date(iso);
-            if (isNaN(d.getTime())) return '';
-            const now = new Date();
-            if (d.toDateString() === now.toDateString()) {
-                return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
-            }
-            return (d.getMonth() + 1) + '-' + d.getDate();
-        }
-
         // v099: 标记当前群已读（本地时间戳 + 防抖同步服务端 mark_group_read）
         function markGroupRead(ts) {
             if (!currentGroupId) return;
@@ -2223,10 +2233,13 @@
                 const msgs = data.messages || [];
                 const beforeScroll = beforeId ? (document.getElementById('publicMessages').scrollHeight) : 0;
                 const prevLen = groupMessages.length;
+                // v073 性能优化：DocumentFragment 批量插入，避免逐条 append 反复触发布局
+                const frag = document.createDocumentFragment();
                 // 服务端按 created_at 倒序返回；转正序渲染
                 for (let i = msgs.length - 1; i >= 0; i--) {
-                    if (msgs[i]) handleGroupMessage(gid, msgs[i], true);
+                    if (msgs[i]) handleGroupMessage(gid, msgs[i], true, frag);
                 }
+                document.getElementById('publicMessages').appendChild(frag);
                 groupHasMore = msgs.length >= 100;
                 if (beforeId) {
                     // 上翻加载：保持视口稳定
@@ -2502,7 +2515,7 @@
                     } else if (mjType === 'file') {
                         const fsize = mjAttrs.size || '';
                         if (isImageFile(mjFname)) {
-                            contentHtml = _wrapImgWithLoader(mjUrl, `alt="${escapeAttr(mjFname)}" onclick="viewImage('${escapeJsString(mjUrl)}')"`, 'max-width:280px;max-height:280px;border-radius:12px;cursor:pointer;');
+                            contentHtml = _wrapImgWithLoader(mjUrl, `alt="${escapeAttr(mjFname)}" onclick="previewImage('${escapeJsString(mjUrl)}')"`, 'max-width:280px;max-height:280px;border-radius:12px;cursor:pointer;');
                             fileIsImage = true;
                         } else if (isVideoFile(mjFname)) {
                             contentHtml = buildVideoBubbleHtml(mjUrl, mjFname);
@@ -2512,7 +2525,7 @@
                     } else if (mjType === 'emoji') {
                         // v091: 自定义表情——CQ 码引用图片 URL，渲染为 80px 表情图
                         if (mjUrl) {
-                            contentHtml = _wrapImgWithLoader(mjUrl, `alt="${escapeAttr(mjAttrs.name || '表情')}" onclick="viewImage('${escapeJsString(mjUrl)}')"`, 'width:80px;height:80px;object-fit:contain;border-radius:8px;cursor:pointer;');
+                            contentHtml = _wrapImgWithLoader(mjUrl, `alt="${escapeAttr(mjAttrs.name || '表情')}" onclick="previewImage('${escapeJsString(mjUrl)}')"`, 'width:80px;height:80px;object-fit:contain;border-radius:8px;cursor:pointer;');
                         } else {
                             contentHtml = escapeHtml(mjAttrs.name || '[表情]');
                         }
@@ -2540,7 +2553,7 @@
                             `<a href="${escapeAttr(linkMatch[2])}" target="_blank" rel="noopener noreferrer" style="color:var(--md-link);text-decoration:underline;">${escapeHtml(linkMatch[1])}</a>`;
                     } else if (fileMatch && isSafeUrl(fileMatch[3])) {
                         if (isImageFile(fileMatch[1])) {
-                            contentHtml = _wrapImgWithLoader(fileMatch[3], `alt="${escapeAttr(fileMatch[1])}" onclick="viewImage('${escapeJsString(fileMatch[3])}')"`, 'max-width:280px;max-height:280px;border-radius:12px;cursor:pointer;');
+                            contentHtml = _wrapImgWithLoader(fileMatch[3], `alt="${escapeAttr(fileMatch[1])}" onclick="previewImage('${escapeJsString(fileMatch[3])}')"`, 'max-width:280px;max-height:280px;border-radius:12px;cursor:pointer;');
                             fileIsImage = true;
                         } else if (isVideoFile(fileMatch[1])) {
                             contentHtml = buildVideoBubbleHtml(fileMatch[3], fileMatch[1]);

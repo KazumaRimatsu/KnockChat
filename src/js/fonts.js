@@ -74,26 +74,11 @@
         try { return JSON.parse(text); } catch (e) { return null; }
     }
 
-    function findFont(id) {
+    // 在预设列表中按 id 查找（字体 / 字号 / 字重三套预设共用）
+    function findIn(list, id) {
         if (!id) return null;
-        for (var i = 0; i < BUILTIN_FONTS.length; i++) {
-            if (BUILTIN_FONTS[i].id === id) return BUILTIN_FONTS[i];
-        }
-        return null;
-    }
-
-    function findScale(id) {
-        if (!id) return null;
-        for (var i = 0; i < BUILTIN_SCALES.length; i++) {
-            if (BUILTIN_SCALES[i].id === id) return BUILTIN_SCALES[i];
-        }
-        return null;
-    }
-
-    function findWeight(id) {
-        if (!id) return null;
-        for (var i = 0; i < BUILTIN_WEIGHTS.length; i++) {
-            if (BUILTIN_WEIGHTS[i].id === id) return BUILTIN_WEIGHTS[i];
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].id === id) return list[i];
         }
         return null;
     }
@@ -111,13 +96,13 @@
             if (!raw) return;
             var data = safeParse(raw);
             if (!data || typeof data !== 'object') return;
-            if (typeof data.activeFontId === 'string' && findFont(data.activeFontId)) {
+            if (typeof data.activeFontId === 'string' && findIn(BUILTIN_FONTS, data.activeFontId)) {
                 state.activeFontId = data.activeFontId;
             }
-            if (typeof data.activeScaleId === 'string' && findScale(data.activeScaleId)) {
+            if (typeof data.activeScaleId === 'string' && findIn(BUILTIN_SCALES, data.activeScaleId)) {
                 state.activeScaleId = data.activeScaleId;
             }
-            if (typeof data.activeWeightId === 'string' && findWeight(data.activeWeightId)) {
+            if (typeof data.activeWeightId === 'string' && findIn(BUILTIN_WEIGHTS, data.activeWeightId)) {
                 state.activeWeightId = data.activeWeightId;
             }
         } catch (e) { /* 数据损坏时保持默认 */ }
@@ -132,27 +117,32 @@
     }
 
     // ============================================================
-    // 样式注入：--app-font-family 仅写 <html> 内联样式
+    // 样式注入：--app-* 变量仅写 <html> 内联样式
     // ============================================================
     // commit=true 表示正式生效（持久化 + 回调）；false 表示预览
+
+    // 写入单个 CSS 变量（value 为 null 时移除变量，回退默认）
+    function writeCssVar(name, value) {
+        var root = document.documentElement;
+        if (value != null) root.style.setProperty(name, String(value));
+        else root.style.removeProperty(name);
+    }
+
+    // 提交当前选择：更新状态并持久化 + 触发对应回调（三套 API 共用）
+    function commitItem(stateKey, onChangeFn, item) {
+        state[stateKey] = item.id;
+        saveState();
+        if (typeof onChangeFn === 'function') onChangeFn();
+    }
+
     function applyFont(font, commit) {
         if (!font) return false;
         try {
-            var root = document.documentElement;
-            if (font.family) {
-                root.style.setProperty(FONT_VAR, font.family);
-            } else {
-                // 系统默认：移除变量，body 回退到 --md-font-family（主题字体）
-                root.style.removeProperty(FONT_VAR);
-            }
+            writeCssVar(FONT_VAR, font.family);
         } catch (e) {
             return false;
         }
-        if (commit) {
-            state.activeFontId = font.id;
-            saveState();
-            notify();
-        }
+        if (commit) commitItem('activeFontId', notify, font);
         return true;
     }
 
@@ -171,125 +161,89 @@
     function applyScale(item, commit) {
         if (!item) return false;
         try {
-            var root = document.documentElement;
-            if (typeof item.scale === 'number') {
-                root.style.setProperty(SCALE_VAR, String(item.scale));
-            } else {
-                root.style.removeProperty(SCALE_VAR);
-            }
+            writeCssVar(SCALE_VAR, item.scale);
         } catch (e) {
             return false;
         }
-        if (commit) {
-            state.activeScaleId = item.id;
-            saveState();
-            notifyTypography();
-        }
+        if (commit) commitItem('activeScaleId', notifyTypography, item);
         return true;
     }
 
     function applyWeight(item, commit) {
         if (!item) return false;
         try {
-            var root = document.documentElement;
-            if (typeof item.normal === 'number') root.style.setProperty(WEIGHT_NORMAL_VAR, String(item.normal));
-            else root.style.removeProperty(WEIGHT_NORMAL_VAR);
-            if (typeof item.medium === 'number') root.style.setProperty(WEIGHT_MEDIUM_VAR, String(item.medium));
-            else root.style.removeProperty(WEIGHT_MEDIUM_VAR);
-            if (typeof item.bold === 'number') root.style.setProperty(WEIGHT_BOLD_VAR, String(item.bold));
-            else root.style.removeProperty(WEIGHT_BOLD_VAR);
+            writeCssVar(WEIGHT_NORMAL_VAR, item.normal);
+            writeCssVar(WEIGHT_MEDIUM_VAR, item.medium);
+            writeCssVar(WEIGHT_BOLD_VAR, item.bold);
         } catch (e) {
             return false;
         }
-        if (commit) {
-            state.activeWeightId = item.id;
-            saveState();
-            notifyTypography();
-        }
+        if (commit) commitItem('activeWeightId', notifyTypography, item);
         return true;
     }
 
     // ============================================================
     // 对外 API
     // ============================================================
-    var api = {
-        STORAGE_KEY: STORAGE_KEY,
-        FONT_VAR: FONT_VAR,
 
-        // 启动恢复：从 localStorage 读取并应用上次选择的字体
-        init: function () {
-            loadState();
-            applyFont(findFont(state.activeFontId) || findFont('default'), false);
-            notify();
-        },
+    // 三套同构 API（字体 / 字号 / 字重）由工厂统一生成：
+    // list / get / getActiveId / activate / preview 结构一致，仅命名与数据源不同。
+    function makeChoiceApi(cfg) {
+        var api = { onChange: null };
+        api[cfg.names.list] = function () { return cfg.items.slice(); };
+        api[cfg.names.get] = function (id) { return findIn(cfg.items, id); };
+        api[cfg.names.getActiveId] = function () { return state[cfg.stateKey]; };
+        api[cfg.names.activate] = function (id) {
+            var item = findIn(cfg.items, id) || findIn(cfg.items, 'default');
+            return cfg.apply(item, true);
+        };
+        api[cfg.names.preview] = function (id) {
+            var item = findIn(cfg.items, id);
+            if (!item) return false;
+            return cfg.apply(item, false);
+        };
+        return api;
+    }
 
-        // 全部预设字体
-        list: function () {
-            return BUILTIN_FONTS.slice();
-        },
-
-        getFont: function (id) { return findFont(id); },
-
-        getActiveFontId: function () { return state.activeFontId; },
-
-        // 应用并持久化（正式生效）；id 无效时回退系统默认
-        activate: function (id) {
-            var font = findFont(id) || findFont('default');
-            return applyFont(font, true);
-        },
-
-        // 应用但不持久化（预览）
-        preview: function (id) {
-            var font = findFont(id);
-            if (!font) return false;
-            return applyFont(font, false);
-        },
-
-        onChange: null
+    var api = makeChoiceApi({
+        items: BUILTIN_FONTS,
+        stateKey: 'activeFontId',
+        apply: applyFont,
+        names: { list: 'list', get: 'getFont', getActiveId: 'getActiveFontId', activate: 'activate', preview: 'preview' }
+    });
+    api.STORAGE_KEY = STORAGE_KEY;
+    api.FONT_VAR = FONT_VAR;
+    // 启动恢复：从 localStorage 读取并应用上次选择的字体
+    api.init = function () {
+        loadState();
+        applyFont(findIn(BUILTIN_FONTS, state.activeFontId) || findIn(BUILTIN_FONTS, 'default'), false);
+        notify();
     };
 
-    var typographyApi = {
-        STORAGE_KEY: STORAGE_KEY,
-        SCALE_VAR: SCALE_VAR,
-        WEIGHT_NORMAL_VAR: WEIGHT_NORMAL_VAR,
-        WEIGHT_MEDIUM_VAR: WEIGHT_MEDIUM_VAR,
-        WEIGHT_BOLD_VAR: WEIGHT_BOLD_VAR,
-
-        init: function () {
-            loadState();
-            applyScale(findScale(state.activeScaleId) || findScale('default'), false);
-            applyWeight(findWeight(state.activeWeightId) || findWeight('default'), false);
-            notifyTypography();
-        },
-
-        listScales: function () { return BUILTIN_SCALES.slice(); },
-        getScale: function (id) { return findScale(id); },
-        getActiveScaleId: function () { return state.activeScaleId; },
-        activateScale: function (id) {
-            var item = findScale(id) || findScale('default');
-            return applyScale(item, true);
-        },
-        previewScale: function (id) {
-            var item = findScale(id);
-            if (!item) return false;
-            return applyScale(item, false);
-        },
-
-        listWeights: function () { return BUILTIN_WEIGHTS.slice(); },
-        getWeight: function (id) { return findWeight(id); },
-        getActiveWeightId: function () { return state.activeWeightId; },
-        activateWeight: function (id) {
-            var item = findWeight(id) || findWeight('default');
-            return applyWeight(item, true);
-        },
-        previewWeight: function (id) {
-            var item = findWeight(id);
-            if (!item) return false;
-            return applyWeight(item, false);
-        },
-
-        onChange: null
+    var typographyApi = makeChoiceApi({
+        items: BUILTIN_SCALES,
+        stateKey: 'activeScaleId',
+        apply: applyScale,
+        names: { list: 'listScales', get: 'getScale', getActiveId: 'getActiveScaleId', activate: 'activateScale', preview: 'previewScale' }
+    });
+    typographyApi.STORAGE_KEY = STORAGE_KEY;
+    typographyApi.SCALE_VAR = SCALE_VAR;
+    typographyApi.WEIGHT_NORMAL_VAR = WEIGHT_NORMAL_VAR;
+    typographyApi.WEIGHT_MEDIUM_VAR = WEIGHT_MEDIUM_VAR;
+    typographyApi.WEIGHT_BOLD_VAR = WEIGHT_BOLD_VAR;
+    typographyApi.init = function () {
+        loadState();
+        applyScale(findIn(BUILTIN_SCALES, state.activeScaleId) || findIn(BUILTIN_SCALES, 'default'), false);
+        applyWeight(findIn(BUILTIN_WEIGHTS, state.activeWeightId) || findIn(BUILTIN_WEIGHTS, 'default'), false);
+        notifyTypography();
     };
+    // 字重组并入同一对象：与字号组共用 onChange，命名不同但结构一致
+    Object.assign(typographyApi, makeChoiceApi({
+        items: BUILTIN_WEIGHTS,
+        stateKey: 'activeWeightId',
+        apply: applyWeight,
+        names: { list: 'listWeights', get: 'getWeight', getActiveId: 'getActiveWeightId', activate: 'activateWeight', preview: 'previewWeight' }
+    }));
 
     global.FontManager = api;
     global.TypographyManager = typographyApi;
